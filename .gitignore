@@ -1,0 +1,9 @@
+.vscode/
+litelitedram.egg-info/
+**/__pycache__/
+**/build/
+**/csr.csv
+**/analyzer.csv
+**/*.vcd
+**/prog/
+**/stream.cfg

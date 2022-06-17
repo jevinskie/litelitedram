@@ -1,0 +1,3 @@
+[submodule "3rdparty/General-Slow-DDR3-Interface"]
+	path = 3rdparty/General-Slow-DDR3-Interface
+	url = https://github.com/jevinskie/General-Slow-DDR3-Interface
