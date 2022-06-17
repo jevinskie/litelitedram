@@ -46,7 +46,7 @@ class BaseSoC(SoCCore):
 
         # Slow DDR3 --------------------------------------------------------------------------------
         ddr3_pads = platform.request("ddram")
-        self.submodules.ddr = SlowDDR3(ddr3_pads)
+        self.submodules.ddr = SlowDDR3(self.platform, ddr3_pads, sys_clk_freq)
 
         # JTAGbone ---------------------------------------------------------------------------------
         if with_jtagbone:
