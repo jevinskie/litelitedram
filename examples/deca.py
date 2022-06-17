@@ -61,8 +61,12 @@ class BaseSoC(SoCCore):
             from litescope import LiteScopeAnalyzer
 
             analyzer_signals = [
-                Signal(),
-                # ddr3_pads,
+                ddr3_pads.a,
+                ddr3_pads.ba,
+                ddr3_pads.cas_n,
+                ddr3_pads.ras_n,
+                ddr3_pads.we_n,
+                ddr3_pads.cs_n,
             ]
             self.submodules.analyzer = LiteScopeAnalyzer(
                 analyzer_signals,
