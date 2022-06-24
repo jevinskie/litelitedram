@@ -46,7 +46,7 @@ class BaseSoC(SoCCore):
 
         # Slow DDR3 --------------------------------------------------------------------------------
         ddr3_pads = platform.request("ddram")
-        self.submodules.ddr = SlowDDR3(self.platform, ddr3_pads, sys_clk_freq)
+        self.submodules.ddr = SlowDDR3(self.platform, ddr3_pads, sys_clk_freq, debug=True)
 
         # JTAGbone ---------------------------------------------------------------------------------
         if with_jtagbone:
@@ -60,21 +60,25 @@ class BaseSoC(SoCCore):
         if with_analyzer:
             from litescope import LiteScopeAnalyzer
 
-            analyzer_signals = [
-                ddr3_pads.a,
-                ddr3_pads.ba,
-                ddr3_pads.cas_n,
-                ddr3_pads.ras_n,
-                ddr3_pads.we_n,
-                ddr3_pads.cs_n,
-            ]
-            self.submodules.analyzer = LiteScopeAnalyzer(
-                analyzer_signals,
-                depth=1024,
-                clock_domain="sys",
-                rle_nbits_min=15,
-                csr_csv="analyzer.csv",
-            )
+        analyzer_signals = [
+            ddr3_pads.a,
+            ddr3_pads.ba,
+            # ddr3_pads.cas_n,
+            # ddr3_pads.ras_n,
+            ddr3_pads.we_n,
+            ddr3_pads.cs_n,
+            ddr3_pads.dq,
+            ddr3_pads.dqs_p,
+            self.ddr.init_state,
+            self.ddr.work_state,
+        ]
+        self.submodules.analyzer = LiteScopeAnalyzer(
+            analyzer_signals,
+            depth=1024,
+            clock_domain="sys",
+            rle_nbits_min=15,
+            csr_csv="analyzer.csv",
+        )
 
         # LEDs -------------------------------------------------------------------------------------
         self.submodules.leds = LedChaser(

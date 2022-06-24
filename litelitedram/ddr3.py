@@ -1,14 +1,34 @@
 import os
 import subprocess
+from enum import IntEnum
 
 from migen import *
 
 
+class InitState(IntEnum):
+    WAIT0 = 0
+    CKE = 1
+    MRS2 = 2
+    MRS3 = 3
+    MRS1 = 4
+    MRS0 = 5
+    ZQCL = 6
+    WAIT1 = 7
+
+
+class WorkState(IntEnum):
+    IDLE = 0
+    READ = 1
+    WRITE = 2
+    REFRESH = 3
+
+
 class SlowDDR3(Module):
-    def __init__(self, platform, pads, sys_clk_freq):
+    def __init__(self, platform, pads, sys_clk_freq, debug=False):
         self.platform = platform
         self.pads = pads
         self.sys_clk_freq = sys_clk_freq
+        self.debug = debug
 
         rd_valid = Signal()
         rd_ready = Signal()
@@ -18,6 +38,9 @@ class SlowDDR3(Module):
         wr_data = Signal(16)
         addr = Signal(27)
         initfin = Signal()
+        if debug:
+            self.init_state = Signal(3)
+            self.work_state = Signal(2)
 
         cs, cas, ras, we = [Signal() for i in range(4)]
         self.comb += [
@@ -33,8 +56,7 @@ class SlowDDR3(Module):
         self.specials += dqs_p.get_tristate(pads.dqs_p)
         self.specials += dqs_n.get_tristate(pads.dqs_n)
 
-        self.specials += Instance(
-            "slowDDR3",
+        ports = dict(
             i_clk=ClockSignal(),
             i_inv_clk=~ClockSignal(),
             i_resetn=~ResetSignal(),
@@ -67,8 +89,16 @@ class SlowDDR3(Module):
             i_sysIO_dataWr_payload=wr_data,
             i_sysIO_address=addr,
             o_sysIO_initFin=initfin,
-            name="slowDDR3_ctlr",
         )
+        if debug:
+            ports.update(
+                dict(
+                    o_phyIO_init_state=self.init_state,
+                    o_phyIO_work_state=self.work_state,
+                )
+            )
+
+        self.specials += Instance("slowDDR3", name="slowDDR3_ctlr", **ports)
 
     def do_finalize(self):
         verilog_dir = os.path.join(self.platform.output_dir, "gateware")
@@ -76,8 +106,14 @@ class SlowDDR3(Module):
         sbt_dir = os.path.normpath(
             os.path.join(os.path.dirname(__file__), "..", "3rdparty", "General-Slow-DDR3-Interface")
         )
+        dbg = ""
+        if self.debug:
+            dbg = " --debug true"
         subprocess.check_call(
-            ["sbt", f"run --odir {verilog_dir} --sys-clk {self.sys_clk_freq} --tristate true"],
+            [
+                "sbt",
+                f"run --odir {verilog_dir} --sys-clk {self.sys_clk_freq} --tristate true" + dbg,
+            ],
             cwd=sbt_dir,
         )
         self.platform.add_source(verilog_filename)
