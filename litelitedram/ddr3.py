@@ -2,7 +2,12 @@ import os
 import subprocess
 from enum import IntEnum
 
+from litex.soc.interconnect import wishbone
 from migen import *
+
+_kbit = 1024
+_mbit = _kbit * 1024
+_gbit = _mbit * 1024
 
 
 class InitState(IntEnum):
@@ -24,11 +29,13 @@ class WorkState(IntEnum):
 
 
 class SlowDDR3(Module):
-    def __init__(self, platform, pads, sys_clk_freq, debug=False):
+    def __init__(self, platform, pads, sys_clk_freq, width=16, size=2 * _gbit, debug=False):
         self.platform = platform
         self.pads = pads
         self.sys_clk_freq = sys_clk_freq
         self.debug = debug
+        assert width == 16
+        assert size == 2 * _gbit
 
         rd_valid = Signal()
         rd_ready = Signal()
@@ -37,7 +44,31 @@ class SlowDDR3(Module):
         wr_ready = Signal()
         wr_data = Signal(16)
         addr = Signal(27)
+        sel = Signal(width // 8)
         initfin = Signal()
+
+        # wishbone
+        self.bus = bus = wishbone.Interface(width, len(addr))
+        wb_valid = Signal()
+        self.comb += [
+            wb_valid.eq(bus.cyc & bus.stb),
+            If(
+                wb_valid,
+                bus.adr.eq(addr),
+                If(
+                    bus.we,
+                    bus.dat_w.eq(wr_data),
+                    sel.eq(bus.sel),
+                    bus.ack.eq(wr_ready),
+                    wr_valid.eq(1),
+                ).Else(
+                    bus.dat_r.eq(rd_data),
+                    bus.ack.eq(rd_ready),
+                    rd_valid.eq(1),
+                ),
+            ),
+        ]
+
         if debug:
             self.init_state = Signal(3)
             self.work_state = Signal(2)
@@ -90,6 +121,7 @@ class SlowDDR3(Module):
             o_sysIO_dataWr_ready=wr_ready,
             i_sysIO_dataWr_payload=wr_data,
             i_sysIO_address=addr,
+            i_sysIO_sel=sel,
             o_sysIO_initFin=initfin,
         )
         if debug:
