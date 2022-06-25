@@ -47,6 +47,10 @@ class BaseSoC(SoCCore):
         # Slow DDR3 --------------------------------------------------------------------------------
         ddr3_pads = platform.request("ddram")
         self.submodules.ddr = SlowDDR3(self.platform, ddr3_pads, sys_clk_freq, debug=True)
+        dram_base = 0x2000_0000
+        self.add_memory_region("dram", dram_base, self.ddr.bitsize // 8, type="")
+        self.bus.add_slave("dram", self.ddr.bus)
+        # self.register_mem("dram", dram_base, self.ddr.bus, size=self.ddr.bitsize // 8)
 
         # JTAGbone ---------------------------------------------------------------------------------
         if with_jtagbone:
@@ -64,15 +68,18 @@ class BaseSoC(SoCCore):
                 ddr3_pads.a,
                 ddr3_pads.ba,
                 ddr3_pads.cas_n,
-                # ddr3_pads.ras_n,
+                ddr3_pads.ras_n,
                 ddr3_pads.we_n,
                 ddr3_pads.cs_n,
-                # ddr3_pads.dq,
+                ddr3_pads.dm,
+                ddr3_pads.dq,
                 # ddr3_pads.dqs_p,
-                self.ddr.init_state,
+                # self.ddr.init_state,
                 self.ddr.work_state,
-                self.ddr.refresh_cnt,
-                self.ddr.refresh_issued,
+                # self.ddr.refresh_cnt,
+                # self.ddr.refresh_issued,
+                self.ddr.bus,
+                self.ddr.sysio,
             ]
             self.submodules.analyzer = LiteScopeAnalyzer(
                 analyzer_signals,
@@ -104,6 +111,7 @@ def main():
     args = parser.parse_args()
 
     soc_kwargs = soc_core_argdict(args)
+    soc_kwargs["cpu_type"] = "None"
     soc_kwargs["uart_name"] = "crossover"
     soc_kwargs["uart_baudrate"] = 2_000_000
 

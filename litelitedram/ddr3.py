@@ -1,9 +1,11 @@
 import os
 import subprocess
 from enum import IntEnum
+from math import ceil, log2
 
 from litex.soc.interconnect import wishbone
 from migen import *
+from migen.genlib.record import DIR_M_TO_S, DIR_S_TO_M
 
 _kbit = 1024
 _mbit = _kbit * 1024
@@ -28,43 +30,54 @@ class WorkState(IntEnum):
     REFRESH = 3
 
 
+class SlowDDR3SysInterface(Record):
+    def __init__(self, width, bitsize):
+        super().__init__(
+            [
+                ("rd_valid", 1, DIR_S_TO_M),
+                ("rd_ready", 1, DIR_M_TO_S),
+                ("rd_data", width, DIR_S_TO_M),
+                ("wr_valid", 1, DIR_M_TO_S),
+                ("wr_ready", 1, DIR_S_TO_M),
+                ("wr_data", width, DIR_M_TO_S),
+                ("addr", ceil(log2(bitsize // width)), DIR_M_TO_S),
+                ("sel", width // 8, DIR_M_TO_S),
+                ("initfin", 1, DIR_S_TO_M),
+            ]
+        )
+
+
 class SlowDDR3(Module):
-    def __init__(self, platform, pads, sys_clk_freq, width=16, size=2 * _gbit, debug=False):
+    def __init__(self, platform, pads, sys_clk_freq, width=16, bitsize=2 * _gbit, debug=False):
         self.platform = platform
         self.pads = pads
         self.sys_clk_freq = sys_clk_freq
         self.debug = debug
+        self.width = width
         assert width == 16
-        assert size == 2 * _gbit
+        self.bitsize = bitsize
+        assert bitsize == 2 * _gbit
 
-        rd_valid = Signal()
-        rd_ready = Signal()
-        rd_data = Signal(16)
-        wr_valid = Signal()
-        wr_ready = Signal()
-        wr_data = Signal(16)
-        addr = Signal(27)
-        sel = Signal(width // 8)
-        initfin = Signal()
+        self.sysio = sysio = SlowDDR3SysInterface(width, bitsize)
 
         # wishbone
-        self.bus = bus = wishbone.Interface(width, len(addr))
+        self.bus = bus = wishbone.Interface(width, len(sysio.addr))
         wb_valid = Signal()
         self.comb += [
             wb_valid.eq(bus.cyc & bus.stb),
             If(
                 wb_valid,
-                bus.adr.eq(addr),
+                bus.adr.eq(sysio.addr),
                 If(
                     bus.we,
-                    bus.dat_w.eq(wr_data),
-                    sel.eq(bus.sel),
-                    bus.ack.eq(wr_ready),
-                    wr_valid.eq(1),
+                    bus.dat_w.eq(sysio.wr_data),
+                    sysio.sel.eq(bus.sel),
+                    bus.ack.eq(sysio.wr_ready),
+                    sysio.wr_valid.eq(1),
                 ).Else(
-                    bus.dat_r.eq(rd_data),
-                    bus.ack.eq(rd_ready),
-                    rd_valid.eq(1),
+                    bus.dat_r.eq(sysio.rd_data),
+                    bus.ack.eq(sysio.rd_ready),
+                    sysio.rd_ready.eq(1),
                 ),
             ),
         ]
@@ -114,15 +127,15 @@ class SlowDDR3(Module):
             i_phyIO_dqs_n_i=dqs_n.i,
             o_phyIO_dqs_n_o=dqs_n.o,
             o_phyIO_dqs_n_oe=dqs_n.oe,
-            o_sysIO_dataRd_valid=rd_valid,
-            i_sysIO_dataRd_ready=rd_ready,
-            o_sysIO_dataRd_payload=rd_data,
-            i_sysIO_dataWr_valid=wr_valid,
-            o_sysIO_dataWr_ready=wr_ready,
-            i_sysIO_dataWr_payload=wr_data,
-            i_sysIO_address=addr,
-            i_sysIO_sel=sel,
-            o_sysIO_initFin=initfin,
+            o_sysIO_dataRd_valid=sysio.rd_valid,
+            i_sysIO_dataRd_ready=sysio.rd_ready,
+            o_sysIO_dataRd_payload=sysio.rd_data,
+            i_sysIO_dataWr_valid=sysio.wr_valid,
+            o_sysIO_dataWr_ready=sysio.wr_ready,
+            i_sysIO_dataWr_payload=sysio.wr_data,
+            i_sysIO_address=sysio.addr,
+            i_sysIO_sel=sysio.sel,
+            o_sysIO_initFin=sysio.initfin,
         )
         if debug:
             ports.update(
