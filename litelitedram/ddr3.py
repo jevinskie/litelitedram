@@ -41,6 +41,8 @@ class SlowDDR3(Module):
         if debug:
             self.init_state = Signal(3)
             self.work_state = Signal(2)
+            self.refresh_cnt = Signal(4)
+            self.refresh_issued = Signal()
 
         cs, cas, ras, we = [Signal() for i in range(4)]
         self.comb += [
@@ -95,6 +97,8 @@ class SlowDDR3(Module):
                 dict(
                     o_phyIO_init_state=self.init_state,
                     o_phyIO_work_state=self.work_state,
+                    o_phyIO_refresh_cnt=self.refresh_cnt,
+                    o_phyIO_refresh_issued=self.refresh_issued,
                 )
             )
 
