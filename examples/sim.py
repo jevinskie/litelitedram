@@ -139,6 +139,7 @@ class SimSoC(SoCCore):
                 self.ddr.refresh_issued,
                 self.ddr.bus,
                 self.ddr.sysio,
+                self.bus.slaves["dram"],
             ]
             # analyzer_signals = [phy_pads]
             self.submodules.analyzer = LiteScopeAnalyzer(
