@@ -84,5 +84,18 @@ class DDR3Model(Module):
         for d in ("sg25", "x16", "den2048Mb"):
             self.platform.add_compiler_definition(d)
         self.platform.add_source(ddr3_model_file, language="systemverilog")
-        # incdir
-        # compile defs
+        self.platform.toolchain.add_modelsim_tcl_code(
+            """\
+
+# a run command that suppresses metavalue warnings before reset
+rename run run_supdiv0_real
+proc run args {
+   echo "Suppressing divsion by 0 warnings during reset";
+   suppress 8630;
+   when -label enable_div0_warn \
+      { $now > 0 } \
+      { echo "Re-enabled divsion by 0 warnings"; suppress -clear 8630; nowhen enable_div0_warn; };
+   run_supdiv0_real $args;
+}
+"""
+        )

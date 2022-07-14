@@ -76,7 +76,7 @@ class SlowDDR3(Module):
                     sysio.wr_valid.eq(1),
                 ).Else(
                     bus.dat_r.eq(sysio.rd_data),
-                    bus.ack.eq(sysio.rd_ready),
+                    bus.ack.eq(sysio.rd_valid),
                     sysio.rd_ready.eq(1),
                 ),
             ),
