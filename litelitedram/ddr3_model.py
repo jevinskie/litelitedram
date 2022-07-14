@@ -83,6 +83,6 @@ class DDR3Model(Module):
         self.platform.add_verilog_include_path(ddr3_model_dir)
         for d in ("sg25", "x16", "den2048Mb"):
             self.platform.add_compiler_definition(d)
-        self.platform.add_source(ddr3_model_file)
+        self.platform.add_source(ddr3_model_file, language="systemverilog")
         # incdir
         # compile defs

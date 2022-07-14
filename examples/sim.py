@@ -101,22 +101,24 @@ class SimSoC(SoCCore):
 
         # Etherbone --------------------------------------------------------------------------------
         if with_etherbone:
-            self.submodules.ethphy = LiteEthPHYModel(self.platform.request("eth"))
+            phy_pads = self.platform.request("eth")
+            self.submodules.ethphy = LiteEthPHYModel(eth_pads)
             self.add_etherbone(phy=self.ethphy, ip_address="192.168.42.50")
 
         # UARTbone ---------------------------------------------------------------------------------
         if with_uartbone:
-            self.submodules.uartbone_phy = uart.RS232PHYModel(platform.request("serial"))
+            phy_pads = platform.request("serial")
+            self.submodules.uartbone_phy = uart.RS232PHYModel(phy_pads)
             self.submodules.uartbone = uart.UARTBone(phy=self.uartbone_phy, clk_freq=sys_clk_freq)
             self.bus.add_master(name="uartbone", master=self.uartbone.wishbone)
 
         # Slow DDR3 --------------------------------------------------------------------------------
-        # ddr3_pads = DDR3PhyInterface()
-        # self.submodules.ddr = SlowDDR3(self.platform, ddr3_pads, sys_clk_freq, debug=True)
-        # dram_base = 0x2000_0000
-        # self.add_memory_region("dram", dram_base, self.ddr.bitsize // 8, type="")
-        # self.bus.add_slave("dram", self.ddr.bus)
-        # self.submodules.ddr_model = DDR3Model(self.platform, ddr3_pads)
+        ddr3_pads = DDR3PhyInterface()
+        self.submodules.ddr = SlowDDR3(self.platform, ddr3_pads, sys_clk_freq, debug=True)
+        dram_base = 0x2000_0000
+        self.add_memory_region("dram", dram_base, self.ddr.bitsize // 8, type="")
+        self.bus.add_slave("dram", self.ddr.bus)
+        self.submodules.ddr_model = DDR3Model(self.platform, ddr3_pads)
         # self.register_mem("dram", dram_base, self.ddr.bus, size=self.ddr.bitsize // 8)
 
         # scope ------------------------------------------------------------------------------------
@@ -138,6 +140,7 @@ class SimSoC(SoCCore):
                 self.ddr.bus,
                 self.ddr.sysio,
             ]
+            # analyzer_signals = [phy_pads]
             self.submodules.analyzer = LiteScopeAnalyzer(
                 analyzer_signals,
                 depth=4096,

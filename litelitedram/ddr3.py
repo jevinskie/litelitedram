@@ -149,20 +149,35 @@ class SlowDDR3(Module):
 
         self.specials += Instance("slowDDR3", name="slowDDR3_ctlr", **ports)
 
+    @staticmethod
+    def _needs_rebuild(target, dependencies):
+        if not os.path.exists(target):
+            return True
+        tgt_mtime = os.path.getmtime(target)
+        for dep in dependencies:
+            if os.path.getmtime(dep) > tgt_mtime:
+                return True
+        return False
+
     def do_finalize(self):
         verilog_dir = os.path.join(self.platform.output_dir, "gateware")
-        verilog_filename = os.path.join(verilog_dir, "slowDDR3.v")
+        verilog_file = f"slowDDR3_{self.sys_clk_freq}_clk.v"
+        verilog_path = os.path.join(verilog_dir, verilog_file)
         sbt_dir = os.path.normpath(
             os.path.join(os.path.dirname(__file__), "..", "3rdparty", "General-Slow-DDR3-Interface")
         )
+        scala_file = os.path.join(sbt_dir, "slowDDR3.scala")
         dbg = ""
         if self.debug:
             dbg = " --debug true"
-        subprocess.check_call(
-            [
-                "sbt",
-                f"run --odir {verilog_dir} --sys-clk {self.sys_clk_freq} --tristate true" + dbg,
-            ],
-            cwd=sbt_dir,
-        )
-        self.platform.add_source(verilog_filename)
+
+        if self._needs_rebuild(verilog_path, [scala_file]):
+            subprocess.check_call(
+                [
+                    "sbt",
+                    f"run --odir {verilog_dir} --filename {verilog_file} --sys-clk {self.sys_clk_freq} --tristate true"
+                    + dbg,
+                ],
+                cwd=sbt_dir,
+            )
+        self.platform.add_source(verilog_path)
