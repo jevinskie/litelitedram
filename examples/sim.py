@@ -71,6 +71,31 @@ class Platform(SimPlatform):
         self.output_dir = output_dir
 
 
+class WBRegister(Module):
+    def __init__(self, width, addr_width=1):
+        from litex.soc.interconnect import wishbone
+
+        self.d = Signal(width)
+        self.q = Signal(width)
+        self.a = Signal(addr_width)
+        self.bus = bus = wishbone.Interface(width, addr_width)
+        wb_valid = Signal()
+        self.comb += [
+            wb_valid.eq(bus.cyc & bus.stb),
+            If(
+                wb_valid,
+                self.a.eq(bus.adr),
+                If(bus.we, self.d.eq(bus.dat_w), bus.ack.eq(1),).Else(
+                    bus.dat_r.eq(self.q),
+                    bus.ack.eq(1),
+                ),
+            ).Else(
+                self.d.eq(self.q),
+            ),
+        ]
+        self.sync += self.q.eq(self.d)
+
+
 # Bench SoC ----------------------------------------------------------------------------------------
 
 
@@ -82,6 +107,7 @@ class SimSoC(SoCCore):
         with_analyzer=False,
         with_etherbone=False,
         with_uartbone=False,
+        with_dram=False,
         **kwargs,
     ):
         platform = Platform(sim_toolchain)
@@ -113,35 +139,62 @@ class SimSoC(SoCCore):
             self.bus.add_master(name="uartbone", master=self.uartbone.wishbone)
 
         # Slow DDR3 --------------------------------------------------------------------------------
-        ddr3_pads = DDR3PhyInterface()
-        self.submodules.ddr = SlowDDR3(self.platform, ddr3_pads, sys_clk_freq, debug=True)
-        dram_base = 0x2000_0000
-        self.add_memory_region("dram", dram_base, self.ddr.bitsize // 8, type="")
-        self.bus.add_slave("dram", self.ddr.bus)
-        self.submodules.ddr_model = DDR3Model(self.platform, ddr3_pads)
-        # self.register_mem("dram", dram_base, self.ddr.bus, size=self.ddr.bitsize // 8)
+        if with_dram:
+            ddr3_pads = DDR3PhyInterface()
+            self.submodules.ddr = SlowDDR3(self.platform, ddr3_pads, sys_clk_freq, debug=True)
+            dram_base = 0x2000_0000
+            self.add_memory_region("dram", dram_base, self.ddr.bitsize // 8, type="")
+            self.bus.add_slave("dram", self.ddr.bus)
+            self.submodules.ddr_model = DDR3Model(self.platform, ddr3_pads)
+            # self.register_mem("dram", dram_base, self.ddr.bus, size=self.ddr.bitsize // 8)
+
+        if not with_dram:
+            self.submodules.wb_reg32 = WBRegister(32)
+            wb_reg32_base = 0x3000_0000
+            self.add_memory_region("wb_reg32", wb_reg32_base, 4, type="")
+            self.bus.add_slave("wb_reg32", self.wb_reg32.bus)
+
+            self.submodules.wb_reg16 = WBRegister(16)
+            wb_reg16_base = 0x4000_0000
+            self.add_memory_region("wb_reg16", wb_reg16_base, 4, type="")
+            self.bus.add_slave("wb_reg16", self.wb_reg16.bus)
 
         # scope ------------------------------------------------------------------------------------
         if with_analyzer:
-            analyzer_signals = [
-                ddr3_pads.a,
-                ddr3_pads.ba,
-                ddr3_pads.cas_n,
-                ddr3_pads.ras_n,
-                ddr3_pads.we_n,
-                ddr3_pads.cs_n,
-                ddr3_pads.dm,
-                ddr3_pads.dq,
-                # ddr3_pads.dqs_p,
-                self.ddr.init_state,
-                self.ddr.work_state,
-                self.ddr.refresh_cnt,
-                self.ddr.refresh_issued,
-                self.ddr.bus,
-                self.ddr.sysio,
-                self.bus.slaves["dram"],
-            ]
+            analyzer_signals = []
+            if with_dram:
+                analyzer_signals += [
+                    ddr3_pads.a,
+                    ddr3_pads.ba,
+                    ddr3_pads.cas_n,
+                    ddr3_pads.ras_n,
+                    ddr3_pads.we_n,
+                    ddr3_pads.cs_n,
+                    ddr3_pads.dm,
+                    ddr3_pads.dq,
+                    # ddr3_pads.dqs_p,
+                    self.ddr.init_state,
+                    self.ddr.work_state,
+                    self.ddr.refresh_cnt,
+                    self.ddr.refresh_issued,
+                    self.ddr.bus,
+                    self.ddr.sysio,
+                    self.bus.slaves["dram"],
+                ]
             # analyzer_signals = [phy_pads]
+            if not with_dram:
+                analyzer_signals += [
+                    self.wb_reg32.d,
+                    self.wb_reg32.q,
+                    self.wb_reg32.a,
+                    self.wb_reg32.bus,
+                    self.bus.slaves["wb_reg32"],
+                    self.wb_reg16.d,
+                    self.wb_reg16.q,
+                    self.wb_reg16.a,
+                    self.wb_reg16.bus,
+                    self.bus.slaves["wb_reg16"],
+                ]
             self.submodules.analyzer = LiteScopeAnalyzer(
                 analyzer_signals,
                 depth=4096,
@@ -163,6 +216,9 @@ def sim_args(parser):
     parser.add_argument("--with-analyzer", action="store_true", help="Use litescope")
     parser.add_argument("--with-etherbone", action="store_true", help="Use Etherbone")
     parser.add_argument("--with-uartbone", action="store_true", help="Use UARTbone")
+    parser.add_argument(
+        "--with-dram", action="store_true", help="Use slowDDR3 controller and Micron model"
+    )
 
 
 def main():
@@ -193,6 +249,7 @@ def main():
         with_analyzer=args.with_analyzer,
         with_etherbone=args.with_etherbone,
         with_uartbone=args.with_uartbone,
+        with_dram=args.with_dram,
         **soc_kwargs,
     )
 
