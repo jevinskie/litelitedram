@@ -50,18 +50,17 @@ def get_signals(obj, recurse=False, stack=None):
                 signals.add(robj)
         elif recurse:
             if isinstance(attr, abc.Mapping):
-                for k, v in attr.items():
-                    signals |= get_signals(k, recurse=True, stack=stack | set([id(attr)]))
-                    signals |= get_signals(v, recurse=True, stack=stack | set([id(attr)]))
+                for v in attr.values():
+                    signals |= get_signals(v, recurse=True, stack=stack | set([id(obj), id(attr)]))
             elif isinstance(attr, abc.Sequence):
                 for v in attr:
-                    signals |= get_signals(v, recurse=True, stack=stack | set([id(attr)]))
+                    signals |= get_signals(v, recurse=True, stack=stack | set([id(obj), id(attr)]))
             else:
-                signals |= get_signals(attr, recurse=True, stack=stack | set([id(attr)]))
+                signals |= get_signals(attr, recurse=True, stack=stack | set([id(obj), id(attr)]))
     return signals
 
 
-def get_signals_tree(obj, parent_key="", stack=None):
+def get_signals_tree(obj, stack=None):
     if stack is None:
         stack = set()
     if id(obj) in stack:
@@ -73,13 +72,27 @@ def get_signals_tree(obj, parent_key="", stack=None):
         if is_attr_builtin(attr_name):
             continue
         attr = getattr(obj, attr_name)
-        key = f"{parent_key}.{attr}"
+        key = f"{attr_name}"
         if isinstance(attr, Signal):
             signals[key] = attr
         elif isinstance(attr, Record):
             signals[key] = attr.flatten()
-        elif isinstance(attr, Module):
-            sub_signals = get_signals_tree(attr, parent_key=key, stack=stack | id(obj))
+        if isinstance(attr, abc.Mapping):
+            for k, v in attr.items():
+                subkey = f"{key}.{k}"
+                sub_signals = get_signals_tree(v, stack=stack | set([id(obj), id(attr)]))
+                if len(sub_signals):
+                    signals[subkey] = sub_signals
+        elif isinstance(attr, abc.Sequence):
+            sub_signals = []
+            for v in attr:
+                subsigs = get_signals_tree(v, stack=stack | set([id(obj), id(attr)]))
+                if len(subsigs):
+                    sub_signals.append(subsigs)
+            if len(sub_signals):
+                signals[key] = sub_signals
+        else:
+            sub_signals = get_signals_tree(attr, stack=stack | set([id(obj), id(attr)]))
             if len(sub_signals):
                 signals[key] = sub_signals
     return signals
