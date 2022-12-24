@@ -12,7 +12,7 @@ def is_attr_builtin(attr_name):
 # fmt: off
 def is_builtin_type(obj):
     return isinstance(obj, (bool, bytearray, bytes, complex, dict, float, int,
-                            list, range, set, str, tuple, type, memoryview))
+                            list, range, set, str, tuple, type, memoryview, type(None)))
 # fmt: on
 
 
