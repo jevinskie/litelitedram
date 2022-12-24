@@ -68,6 +68,9 @@ def get_signals_tree(obj, stack=None):
     if is_builtin_scalar(obj) or is_raw_sequence(obj):
         return {}
     signals = {}
+    to_inspect = {}
+    for attr_name in dir(obj):
+        to_inspect[attr_name] = getattr(obj, attr_name)
     for attr_name in dir(obj):
         if is_attr_builtin(attr_name):
             continue
@@ -77,6 +80,12 @@ def get_signals_tree(obj, stack=None):
             signals[key] = attr
         elif isinstance(attr, Record):
             signals[key] = attr.flatten()
+        elif isinstance(obj, Module) and attr_name == "_submodules":
+            for sm in attr:
+                name = "bad" if sm[0] is None else sm[0]
+                sub_signals = get_signals_tree(sm[1], stack=stack | set([id(obj), id(attr)]))
+                if len(sub_signals):
+                    signals[f"submodules.{name}"] = sub_signals
         if isinstance(attr, abc.Mapping):
             for k, v in attr.items():
                 subkey = f"{key}.{k}"
