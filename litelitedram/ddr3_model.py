@@ -1,5 +1,5 @@
-import os
 import subprocess
+from pathlib import Path
 
 from migen import *
 from migen.genlib.record import DIR_M_TO_S, DIR_NONE
@@ -74,28 +74,13 @@ class DDR3Model(Module):
         self.specials += Instance("ddr3", name="ddr3_model", **ports)
 
     def do_finalize(self):
-        slowddr3_dir = os.path.normpath(
-            os.path.join(os.path.dirname(__file__), "..", "3rdparty", "General-Slow-DDR3-Interface")
-        )
-        ddr3_model_dir = os.path.join(slowddr3_dir, "model")
-        ddr3_model_file = os.path.join(ddr3_model_dir, "ddr3.v")
+        slowddr3_dir = (
+            Path(__file__).parent.parent / "3rdparty" / "General-Slow-DDR3-Interface"
+        ).resolve()
+        ddr3_model_dir = slowddr3_dir / "model"
+        ddr3_model_file = ddr3_model_dir / "ddr3.v"
         subprocess.check_call(["make", "model/ddr3.v"], cwd=slowddr3_dir)
         self.platform.add_verilog_include_path(ddr3_model_dir)
         for d in ("sg25", "x16", "den2048Mb"):
             self.platform.add_compiler_definition(d)
-        self.platform.add_source(ddr3_model_file, language="systemverilog")
-        self.platform.toolchain.add_modelsim_tcl_code(
-            """\
-
-# a run command that suppresses metavalue warnings before reset
-rename run run_supdiv0_real
-proc run args {
-   echo "Suppressing divsion by 0 warnings during reset";
-   suppress 8630;
-   when -label enable_div0_warn \
-      { $now > 0 } \
-      { echo "Re-enabled divsion by 0 warnings"; suppress -clear 8630; nowhen enable_div0_warn; };
-   run_supdiv0_real $args;
-}
-"""
-        )
+        self.platform.add_source(ddr3_model_file, language="verilog")

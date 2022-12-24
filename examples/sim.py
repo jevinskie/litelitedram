@@ -9,16 +9,17 @@ from pathlib import Path
 from liteeth.phy.model import LiteEthPHYModel
 from litescope import LiteScopeAnalyzer
 from litex.build.generic_platform import *
-from litex.build.sim import SimPlatform, sim_build_argdict, sim_build_args
+from litex.build.sim import SimPlatform
 from litex.build.sim.config import SimConfig
-from litex.gen.fhdl.namer import escape_identifier_name
 from litex.soc.cores import uart
 from litex.soc.integration.builder import *
 from litex.soc.integration.soc_core import *
 from migen import *
+from rich import print
 
 from litelitedram.ddr3 import SlowDDR3
 from litelitedram.ddr3_model import DDR3Model, DDR3PhyInterface
+from litelitedram.utils import get_signals, get_signals_tree
 
 # IOs ----------------------------------------------------------------------------------------------
 
@@ -43,9 +44,9 @@ _io = [
         Subsignal("sink_ready", Pins(1)),
         Subsignal("sink_data", Pins(8)),
     ),
-    # Serial.
+    # UARTbone over TCP.
     (
-        "serial",
+        "uartbone",
         0,
         Subsignal("source_valid", Pins(1)),
         Subsignal("source_ready", Pins(1)),
@@ -61,13 +62,10 @@ _io = [
 
 
 class Platform(SimPlatform):
-    def __init__(self, sim_toolchain):
+    def __init__(self):
         output_dir = None
         mname = "sim"
-        if sim_toolchain != "verilator":
-            mname = escape_identifier_name(Path(__file__).stem)
-            output_dir = os.path.join("build", mname + "_" + sim_toolchain)
-        super().__init__(self, _io, name=mname, toolchain=sim_toolchain)
+        super().__init__(self, _io, name=mname)
         self.output_dir = output_dir
 
 
@@ -102,7 +100,6 @@ class WBRegister(Module):
 class SimSoC(SoCCore):
     def __init__(
         self,
-        sim_toolchain,
         sys_clk_freq=None,
         with_analyzer=False,
         with_etherbone=False,
@@ -110,7 +107,7 @@ class SimSoC(SoCCore):
         with_dram=False,
         **kwargs,
     ):
-        platform = Platform(sim_toolchain)
+        platform = Platform()
         sys_clk_freq = int(sys_clk_freq)
 
         # SoCCore ----------------------------------------------------------------------------------
@@ -127,14 +124,14 @@ class SimSoC(SoCCore):
 
         # Etherbone --------------------------------------------------------------------------------
         if with_etherbone:
-            phy_pads = self.platform.request("eth")
+            eth_pads = self.platform.request("eth")
             self.submodules.ethphy = LiteEthPHYModel(eth_pads)
             self.add_etherbone(phy=self.ethphy, ip_address="192.168.42.50")
 
         # UARTbone ---------------------------------------------------------------------------------
         if with_uartbone:
-            phy_pads = platform.request("serial")
-            self.submodules.uartbone_phy = uart.RS232PHYModel(phy_pads)
+            uart_pads = platform.request("uartbone")
+            self.submodules.uartbone_phy = uart.RS232PHYModel(uart_pads)
             self.submodules.uartbone = uart.UARTBone(phy=self.uartbone_phy, clk_freq=sys_clk_freq)
             self.bus.add_master(name="uartbone", master=self.uartbone.wishbone)
 
@@ -183,6 +180,10 @@ class SimSoC(SoCCore):
                 ]
             # analyzer_signals = [phy_pads]
             if not with_dram:
+                print(get_signals(self.bus, recurse=True))
+                print("\n\n\n============\n\n\n")
+                print(get_signals_tree(self.bus))
+                sys.exit()
                 analyzer_signals += [
                     self.wb_reg32.d,
                     self.wb_reg32.q,
@@ -194,12 +195,12 @@ class SimSoC(SoCCore):
                     self.wb_reg16.a,
                     self.wb_reg16.bus,
                     self.bus.slaves["wb_reg16"],
+                    # self.bus.interconnect,
                 ]
             self.submodules.analyzer = LiteScopeAnalyzer(
                 analyzer_signals,
                 depth=4096,
                 clock_domain="sys",
-                rle_nbits_min=15,
                 csr_csv="analyzer.csv",
             )
 
@@ -209,9 +210,6 @@ class SimSoC(SoCCore):
 
 
 def sim_args(parser):
-    builder_args(parser)
-    soc_core_args(parser)
-    sim_build_args(parser)
     parser.add_argument("--debug-soc-gen", action="store_true", help="Don't run simulation")
     parser.add_argument("--with-analyzer", action="store_true", help="Use litescope")
     parser.add_argument("--with-etherbone", action="store_true", help="Use Etherbone")
@@ -222,7 +220,10 @@ def sim_args(parser):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="litelitedram sim")
+    from litex.soc.integration.soc import LiteXSoCArgumentParser
+
+    parser = LiteXSoCArgumentParser(description="litelitedram sim")
+    parser.set_platform(SimPlatform)
     sim_args(parser)
     args = parser.parse_args()
 
@@ -233,11 +234,9 @@ def main():
     if args.with_etherbone:
         sim_config.add_module("ethernet", "eth", args={"interface": "tap0", "ip": "192.168.42.100"})
     if args.with_uartbone:
-        sim_config.add_module("serial2tcp", "serial", args={"port": 2430})
+        sim_config.add_module("serial2tcp", "uartbone", args={"port": 2430})
 
     soc_kwargs = soc_core_argdict(args)
-    builder_kwargs = builder_argdict(args)
-    sim_build_kwargs = sim_build_argdict(args)
 
     soc_kwargs["sys_clk_freq"] = sys_clk_freq
     soc_kwargs["cpu_type"] = "None"
@@ -245,7 +244,6 @@ def main():
     soc_kwargs["ident_version"] = True
 
     soc = SimSoC(
-        sim_toolchain=args.sim_toolchain,
         with_analyzer=args.with_analyzer,
         with_etherbone=args.with_etherbone,
         with_uartbone=args.with_uartbone,
@@ -253,15 +251,16 @@ def main():
         **soc_kwargs,
     )
 
-    builder_kwargs["csr_csv"] = "csr.csv"
-    builder_kwargs["output_dir"] = soc.platform.output_dir
+    builder_argdict = parser.builder_argdict
+    builder_argdict["csr_csv"] = "csr.csv"
+    builder_argdict["output_dir"] = soc.platform.output_dir
 
     if not args.debug_soc_gen:
-        builder = Builder(soc, **builder_kwargs)
+        builder = Builder(soc, **builder_argdict)
         for i in range(2):
             build = i == 0
             run = i == 1 and builder.compile_gateware
-            builder.build(build=build, run=run, sim_config=sim_config, **sim_build_kwargs)
+            builder.build(build=build, run=run, sim_config=sim_config, **parser.toolchain_argdict)
 
 
 if __name__ == "__main__":
