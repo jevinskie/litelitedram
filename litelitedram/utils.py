@@ -79,10 +79,13 @@ def get_signals_tree(obj, stack=None):
         if isinstance(attr, Signal):
             signals[key] = attr
         elif isinstance(attr, Record):
-            signals[key] = attr.flatten()
+            for sig_tup in attr.layout:
+                name = sig_tup[0]
+                sub_signal = getattr(attr, name)
+                signals[f"{key}.{name}"] = sub_signal
         elif isinstance(obj, Module) and attr_name == "_submodules":
-            for sm in attr:
-                name = "bad" if sm[0] is None else sm[0]
+            for i, sm in enumerate(attr):
+                name = f"sm_{type(sm[1]).__name__}_{i}" if sm[0] is None else sm[0]
                 sub_signals = get_signals_tree(sm[1], stack=stack | set([id(obj), id(attr)]))
                 if len(sub_signals):
                     signals[f"submodules.{name}"] = sub_signals

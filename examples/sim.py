@@ -180,10 +180,7 @@ class SimSoC(SoCCore):
                 ]
             # analyzer_signals = [phy_pads]
             if not with_dram:
-                print(get_signals(self.bus, recurse=True))
-                print("\n\n\n============\n\n\n")
-                print(get_signals_tree(self.bus))
-                sys.exit()
+                sig_tree = get_signals_tree(self.bus)
                 analyzer_signals += [
                     self.wb_reg32.d,
                     self.wb_reg32.q,
@@ -195,7 +192,7 @@ class SimSoC(SoCCore):
                     self.wb_reg16.a,
                     self.wb_reg16.bus,
                     self.bus.slaves["wb_reg16"],
-                    # self.bus.interconnect,
+                    list(self.bus.masters.values())[0],
                 ]
             self.submodules.analyzer = LiteScopeAnalyzer(
                 analyzer_signals,
