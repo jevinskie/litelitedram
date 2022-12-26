@@ -1,7 +1,7 @@
 from collections import abc
 
 from migen.fhdl.module import Module
-from migen.fhdl.structure import Signal
+from migen.fhdl.structure import Cat, Signal
 from migen.genlib.record import Record
 
 
@@ -108,6 +108,10 @@ def get_signals_tree(obj, stack=None):
             if len(sub_signals):
                 signals[key] = sub_signals
     return signals
+
+
+def reverse_signal(sig):
+    return Cat(sig[::-1])
 
 
 def migen_obj_name(obj):

@@ -11,6 +11,7 @@ from litescope import LiteScopeAnalyzer
 from litex.build.generic_platform import *
 from litex.build.sim import SimPlatform
 from litex.build.sim.config import SimConfig
+from litex.gen.fhdl.sim import *
 from litex.soc.cores import uart
 from litex.soc.integration.builder import *
 from litex.soc.integration.soc_core import *
@@ -19,7 +20,7 @@ from rich import print
 
 from litelitedram.ddr3 import SlowDDR3
 from litelitedram.ddr3_model import DDR3Model, DDR3PhyInterface
-from litelitedram.utils import get_signals, get_signals_tree
+from litelitedram.utils import get_signals, get_signals_tree, reverse_signal
 
 # IOs ----------------------------------------------------------------------------------------------
 
@@ -78,19 +79,22 @@ class WBRegister(Module):
         self.a = Signal(addr_width)
         self.bus = bus = wishbone.Interface(width, addr_width)
         wb_valid = Signal()
+        # fmt: off
         self.comb += [
+            self.d.eq(self.q),
             wb_valid.eq(bus.cyc & bus.stb),
-            If(
-                wb_valid,
+            If(wb_valid,
                 self.a.eq(bus.adr),
-                If(bus.we, self.d.eq(bus.dat_w), bus.ack.eq(1),).Else(
+                If(bus.we,
+                    self.d.eq(bus.dat_w),
+                    bus.ack.eq(1),
+                ).Else(
                     bus.dat_r.eq(self.q),
                     bus.ack.eq(1),
                 ),
-            ).Else(
-                self.d.eq(self.q),
-            ),
+            )
         ]
+        # fmt: on
         self.sync += self.q.eq(self.d)
 
 
@@ -180,7 +184,46 @@ class SimSoC(SoCCore):
                 ]
             # analyzer_signals = [phy_pads]
             if not with_dram:
-                sig_tree = get_signals_tree(self.bus)
+                self.submodules.sys_clk_counter = Cycles()
+                cyc = MonitorArg(self.sys_clk_counter.count, on_change=False)
+                bus_master = list(self.bus.masters.values())[0]
+                bus_wb32 = self.wb_reg32.bus
+                bus_wb16 = self.wb_reg16.bus
+                print(get_signals_tree(self.bus))
+                self.submodules += Monitor(
+                    "%0d M adr: %0x cyc: %0b stb: %0b ack: %0b dat_w: %0x dat_r: %0x",
+                    cyc,
+                    bus_master.adr * 4,
+                    bus_master.cyc,
+                    bus_master.stb,
+                    bus_master.ack,
+                    bus_master.dat_w,
+                    bus_master.dat_r,
+                )
+                self.submodules += Monitor(
+                    "%0d S32 adr: %0x cyc: %0b stb: %0b dat_w: %0x dat_r: %0x ack: %0b q: %0x",
+                    cyc,
+                    bus_wb32.adr * 4,
+                    bus_wb32.cyc,
+                    bus_wb32.stb,
+                    bus_wb32.dat_w,
+                    bus_wb32.dat_r,
+                    bus_wb32.ack,
+                    self.wb_reg32.q,
+                )
+                self.submodules += Monitor(
+                    "%0d S16 adr: %0x cyc: %0b stb: %0b dat_w: %0x dat_r: %0x ack: %0b q: %0x",
+                    cyc,
+                    bus_wb16.adr * 4,
+                    bus_wb16.cyc,
+                    bus_wb16.stb,
+                    bus_wb16.dat_w,
+                    bus_wb16.dat_r,
+                    bus_wb16.ack,
+                    self.wb_reg16.q,
+                )
+                # rev = reverse_signal(bus_master.adr)
+                # self.submodules += Monitor("BR(adr): %0x", rev)
                 analyzer_signals += [
                     self.wb_reg32.d,
                     self.wb_reg32.q,
@@ -192,7 +235,7 @@ class SimSoC(SoCCore):
                     self.wb_reg16.a,
                     self.wb_reg16.bus,
                     self.bus.slaves["wb_reg16"],
-                    list(self.bus.masters.values())[0],
+                    bus_master,
                 ]
             self.submodules.analyzer = LiteScopeAnalyzer(
                 analyzer_signals,
