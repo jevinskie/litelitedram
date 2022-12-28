@@ -123,5 +123,6 @@ def rename_migen_obj(obj, name):
 
 
 def rename_migen_fsm(fsm, name):
+    fsm.finalize()
     rename_migen_obj(fsm.state, f"{name}_state")
     rename_migen_obj(fsm.next_state, f"{name}_next_state")

@@ -3,8 +3,7 @@
 # Copyright (c) 2022 Jevin Sweval <jevinsweval@gmail.com>
 # SPDX-License-Identifier: BSD-2-Clause
 
-import argparse
-from pathlib import Path
+from typing import Generator
 
 from liteeth.phy.model import LiteEthPHYModel
 from litescope import LiteScopeAnalyzer
@@ -15,12 +14,19 @@ from litex.gen.fhdl.sim import *
 from litex.soc.cores import uart
 from litex.soc.integration.builder import *
 from litex.soc.integration.soc_core import *
+from litex.soc.interconnect import wishbone
 from migen import *
+from migen.fhdl.structure import _Statement
 from rich import print
 
 from litelitedram.ddr3 import SlowDDR3
 from litelitedram.ddr3_model import DDR3Model, DDR3PhyInterface
-from litelitedram.utils import get_signals, get_signals_tree, reverse_signal
+from litelitedram.utils import (
+    get_signals,
+    get_signals_tree,
+    rename_migen_fsm,
+    reverse_signal,
+)
 
 # IOs ----------------------------------------------------------------------------------------------
 
@@ -71,7 +77,7 @@ class Platform(SimPlatform):
 
 
 class WBRegister(Module):
-    def __init__(self, width, addr_width=1):
+    def __init__(self, width, addr_width=1) -> None:
         from litex.soc.interconnect import wishbone
 
         self.d = Signal(width)
@@ -96,6 +102,106 @@ class WBRegister(Module):
         ]
         # fmt: on
         self.sync += self.q.eq(self.d)
+
+
+class WBInterface(wishbone.Interface):
+    def write_hdl(
+        self,
+        fsm: FSM,
+        next_state,
+        adr: Signal,
+        dat: Signal,
+        sel: Signal | int | None = None,
+        cti: Signal | int | None = None,
+        bte: Signal | int | None = None,
+    ) -> Generator[_Statement, None, None]:
+        wait_state = next_state + "_PRE_WAIT"
+        fsm.act(wait_state, If(self.ack, NextState(next_state)))
+
+        if next_state not in fsm.actions:
+            fsm.actions[next_state] = []
+        fsm.actions[next_state] = [self.cyc.eq(0), self.stb.eq(0)] + fsm.actions[next_state]
+
+        if sel is None:
+            sel = 2 ** len(self.sel) - 1
+        yield self.adr.eq(adr)
+        yield self.dat_w.eq(dat)
+        yield self.sel.eq(sel)
+        if cti is not None:
+            yield self.cti.eq(cti)
+        if bte is not None:
+            yield self.bte.eq(bte)
+        yield self.we.eq(1)
+        yield self.cyc.eq(1)
+        yield self.stb.eq(1)
+        yield NextState(wait_state)
+
+    def read_hdl(
+        self,
+        fsm: FSM,
+        next_state,
+        adr: Signal,
+        dat: Signal,
+        sel: Signal | int | None = None,
+        cti: Signal | int | None = None,
+        bte: Signal | int | None = None,
+    ) -> Generator[_Statement, None, None]:
+        wait_state = next_state + "_PRE_WAIT"
+        fsm.act(wait_state, If(self.ack, NextValue(dat, self.dat_r), NextState(next_state)))
+
+        if next_state not in fsm.actions:
+            fsm.actions[next_state] = []
+        fsm.actions[next_state] = [self.cyc.eq(0), self.stb.eq(0)] + fsm.actions[next_state]
+
+        if sel is None:
+            sel = 2 ** len(self.sel) - 1
+        yield self.adr.eq(adr)
+        yield self.dat_r.eq(dat)
+        yield self.sel.eq(sel)
+        if cti is not None:
+            yield self.cti.eq(cti)
+        if bte is not None:
+            yield self.bte.eq(bte)
+        yield self.we.eq(0)
+        yield self.cyc.eq(1)
+        yield self.stb.eq(1)
+        yield NextState(wait_state)
+
+
+class WBRegisterTester(Module):
+    def __init__(self, test_addr) -> None:
+        self.bus = bus = WBInterface()
+        self.submodules.fsm = fsm = FSM("START")
+        self.tmp = tmp = Signal(bus.data_width)
+
+        # fmt: off
+        fsm.act("START",
+            Display("START"),
+            NextState("WRITE")
+        )
+        fsm.act("WRITE",
+            Display("WRITE"),
+            *bus.write_hdl(fsm, "READ", 0, 0xDEAD_BEEF),
+        )
+        fsm.act("READ",
+            Display("READ"),
+            *bus.read_hdl(fsm, "WRITE_PLUS_ONE", 0, tmp),
+        )
+        fsm.act("WRITE_PLUS_ONE",
+            Display("READ_PLUS_ONE"),
+            *bus.write_hdl(fsm, "READ_PLUS_ONE", 0, tmp + 1),
+        )
+        fsm.act("READ_PLUS_ONE",
+            Display("READ_PLUS_ONE"),
+            *bus.read_hdl(fsm, "END", 0, tmp),
+        )
+        fsm.act("END",
+            Display("END"),
+            Finish()
+        )
+        # fmt: on
+
+        rename_migen_fsm(fsm, "wb_test_fsm")
 
 
 # Bench SoC ----------------------------------------------------------------------------------------
@@ -154,6 +260,9 @@ class SimSoC(SoCCore):
             wb_reg32_base = 0x3000_0000
             self.add_memory_region("wb_reg32", wb_reg32_base, 4, type="")
             self.bus.add_slave("wb_reg32", self.wb_reg32.bus)
+
+            self.submodules.wb_reg32_tester = WBRegisterTester(0x3000_0000)
+            self.bus.add_master("wb_reg32_tester", self.wb_reg32_tester.bus)
 
             self.submodules.wb_reg16 = WBRegister(16)
             wb_reg16_base = 0x4000_0000
