@@ -310,15 +310,15 @@ class SimSoC(SoCCore):
         if not with_dram:
             self.submodules.wb_reg32 = WBRegister(32)
             wb_reg32_base = 0x3000_0000
-            self.add_memory_region("wb_reg32", wb_reg32_base, 4, type="")
+            self.add_memory_region("wb_reg32", wb_reg32_base, 8, type="")
             self.bus.add_slave("wb_reg32", self.wb_reg32.bus)
 
             self.submodules.wb_reg16 = WBRegister(16)
             wb_reg16_base = 0x4000_0000
-            self.add_memory_region("wb_reg16", wb_reg16_base, 4, type="")
+            self.add_memory_region("wb_reg16", wb_reg16_base, 8, type="")
             self.bus.add_slave("wb_reg16", self.wb_reg16.bus)
 
-            self.submodules.wb_reg_tester = WBRegisterTester(wb_reg16_base)
+            self.submodules.wb_reg_tester = WBRegisterTester(wb_reg32_base // 4)
             self.bus.add_master("wb_reg_tester", self.wb_reg_tester.bus)
 
             self.submodules.sys_clk_counter = Cycles()
