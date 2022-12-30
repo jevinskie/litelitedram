@@ -120,12 +120,28 @@ class WBInterface(wishbone.Interface):
         bte: Signal | int | None = None,
         tries: Signal | None = None,
     ) -> Generator[_Statement, None, None]:
+        if sel is None:
+            sel = 2 ** len(self.sel) - 1
+
+        def statements():
+            yield self.adr.eq(adr)
+            yield self.dat_w.eq(dat)
+            yield self.sel.eq(sel)
+            if cti is not None:
+                yield self.cti.eq(cti)
+            if bte is not None:
+                yield self.bte.eq(bte)
+            yield self.we.eq(1)
+            yield self.cyc.eq(1)
+            yield self.stb.eq(1)
+
         wait_state = next_state + "_BEFORE_ENTER_BUS_WAIT"
         timeout_check = list(TimeoutCheck(tries)) if tries is not None else []
         # fmt: off
         fsm.act(wait_state,
             *timeout_check,
             DisplayOnEnter(wait_state),
+            *statements(),
             If(self.ack,
                 Display(next_state + "_BUS_ACKED"),
                 NextState(next_state)
@@ -137,18 +153,8 @@ class WBInterface(wishbone.Interface):
             fsm.actions[next_state] = []
         fsm.actions[next_state] = [self.cyc.eq(0), self.stb.eq(0)] + fsm.actions[next_state]
 
-        if sel is None:
-            sel = 2 ** len(self.sel) - 1
-        yield self.adr.eq(adr)
-        yield self.dat_w.eq(dat)
-        yield self.sel.eq(sel)
-        if cti is not None:
-            yield self.cti.eq(cti)
-        if bte is not None:
-            yield self.bte.eq(bte)
-        yield self.we.eq(1)
-        yield self.cyc.eq(1)
-        yield self.stb.eq(1)
+        for s in statements():
+            yield s
         yield NextState(wait_state)
 
     def controller_read_hdl(
@@ -162,12 +168,29 @@ class WBInterface(wishbone.Interface):
         bte: Signal | int | None = None,
         tries: Signal | None = None,
     ) -> Generator[_Statement, None, None]:
+        if sel is None:
+            sel = 2 ** len(self.sel) - 1
+
+        def statements():
+            yield self.adr.eq(adr)
+            yield self.dat_r.eq(dat)
+            yield self.sel.eq(sel)
+            if cti is not None:
+                yield self.cti.eq(cti)
+            if bte is not None:
+                yield self.bte.eq(bte)
+            yield self.we.eq(0)
+            yield self.cyc.eq(1)
+            yield self.stb.eq(1)
+
         wait_state = next_state + "_BEFORE_ENTER_BUS_WAIT"
         timeout_check = list(TimeoutCheck(tries)) if tries is not None else []
+
         # fmt: off
         fsm.act(wait_state,
             *timeout_check,
             DisplayOnEnter(wait_state),
+            *statements(),
             If(self.ack,
                 Display(next_state + "_BUS_ACKED"),
                 NextValue(dat, self.dat_r),
@@ -180,18 +203,8 @@ class WBInterface(wishbone.Interface):
             fsm.actions[next_state] = []
         fsm.actions[next_state] = [self.cyc.eq(0), self.stb.eq(0)] + fsm.actions[next_state]
 
-        if sel is None:
-            sel = 2 ** len(self.sel) - 1
-        yield self.adr.eq(adr)
-        yield self.dat_r.eq(dat)
-        yield self.sel.eq(sel)
-        if cti is not None:
-            yield self.cti.eq(cti)
-        if bte is not None:
-            yield self.bte.eq(bte)
-        yield self.we.eq(0)
-        yield self.cyc.eq(1)
-        yield self.stb.eq(1)
+        for s in statements():
+            yield s
         yield NextState(wait_state)
 
 
@@ -251,10 +264,13 @@ class SimSoC(SoCCore):
         with_etherbone=False,
         with_uartbone=False,
         with_dram=False,
+        trace=False,
         **kwargs,
     ):
         platform = Platform()
         sys_clk_freq = int(sys_clk_freq)
+
+        self.comb += platform.trace.eq(trace)
 
         # SoCCore ----------------------------------------------------------------------------------
         SoCMini.__init__(
@@ -297,13 +313,13 @@ class SimSoC(SoCCore):
             self.add_memory_region("wb_reg32", wb_reg32_base, 4, type="")
             self.bus.add_slave("wb_reg32", self.wb_reg32.bus)
 
-            self.submodules.wb_reg32_tester = WBRegisterTester(0x3000_0000)
-            self.bus.add_master("wb_reg32_tester", self.wb_reg32_tester.bus)
-
             self.submodules.wb_reg16 = WBRegister(16)
             wb_reg16_base = 0x4000_0000
             self.add_memory_region("wb_reg16", wb_reg16_base, 4, type="")
             self.bus.add_slave("wb_reg16", self.wb_reg16.bus)
+
+            self.submodules.wb_reg_tester = WBRegisterTester(wb_reg16_base)
+            self.bus.add_master("wb_reg_tester", self.wb_reg_tester.bus)
 
             self.submodules.sys_clk_counter = Cycles()
             cyc = MonitorArg(self.sys_clk_counter.count, on_change=False)
@@ -433,6 +449,7 @@ def main():
         with_etherbone=args.with_etherbone,
         with_uartbone=args.with_uartbone,
         with_dram=args.with_dram,
+        trace=args.trace,
         **soc_kwargs,
     )
 
@@ -441,7 +458,7 @@ def main():
     builder_argdict["output_dir"] = soc.platform.output_dir
 
     toolchain_argdict = parser.toolchain_argdict
-    toolchain_argdict["regular_comb"] = True
+    toolchain_argdict["regular_comb"] = False
 
     if not args.debug_soc_gen:
         builder = Builder(soc, **builder_argdict)
