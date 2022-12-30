@@ -104,8 +104,12 @@ class WBRegister(Module):
         self.sync += self.q.eq(self.d)
 
 
+def TimeoutCheck(tries):
+    yield If(tries >= 32, Display("TIMEOUT!"), Finish())
+
+
 class WBInterface(wishbone.Interface):
-    def write_hdl(
+    def controller_write_hdl(
         self,
         fsm: FSM,
         next_state,
@@ -114,12 +118,16 @@ class WBInterface(wishbone.Interface):
         sel: Signal | int | None = None,
         cti: Signal | int | None = None,
         bte: Signal | int | None = None,
+        tries: Signal | None = None,
     ) -> Generator[_Statement, None, None]:
-        wait_state = next_state + "_PRE_WAIT"
+        wait_state = next_state + "_BEFORE_ENTER_BUS_WAIT"
+        timeout_check = list(TimeoutCheck(tries)) if tries is not None else []
         # fmt: off
         fsm.act(wait_state,
+            *timeout_check,
             Display(wait_state),
             If(self.ack,
+                Display(next_state + "_BEFORE_BUS_WAS_ACKED"),
                 NextState(next_state)
             )
         )
@@ -143,21 +151,26 @@ class WBInterface(wishbone.Interface):
         yield self.stb.eq(1)
         yield NextState(wait_state)
 
-    def read_hdl(
+    def controller_read_hdl(
         self,
         fsm: FSM,
         next_state,
-        adr: Signal,
+        adr: Signal | int,
         dat: Signal,
         sel: Signal | int | None = None,
         cti: Signal | int | None = None,
         bte: Signal | int | None = None,
+        tries: Signal | None = None,
     ) -> Generator[_Statement, None, None]:
-        wait_state = next_state + "_PRE_WAIT"
+        wait_state = next_state + "_BEFORE_ENTER_BUS_WAIT"
+        timeout_check = list(TimeoutCheck(tries)) if tries is not None else []
+        print(timeout_check)
         # fmt: off
         fsm.act(wait_state,
+            *timeout_check,
             Display(wait_state),
             If(self.ack,
+                Display(next_state + "_BUS_ACKED"),
                 NextValue(dat, self.dat_r),
                 NextState(next_state)
             )
@@ -188,68 +201,52 @@ class WBRegisterTester(Module):
         self.bus = bus = WBInterface()
         self.submodules.fsm = fsm = FSM("START")
         self.tmp = tmp = Signal(bus.data_width)
+        self.tries = tries = Signal(8)
 
-        ops = [Display("WRITE"), *bus.write_hdl(fsm, "READ", 0, 0xDEAD_BEEF)]
+        ops = [Display("WRITE"), *bus.controller_write_hdl(fsm, "READ", test_addr, 0xDEAD_BEEF)]
         print(ops)
+
+        self.sync += Display("INCREMENT")
+        self.sync += tries.eq(tries + 1)
 
         # fmt: off
         fsm.act("START",
+            *TimeoutCheck(tries),
             Display("START"),
             NextState("WRITE")
         )
         fsm.act("WRITE",
+            *TimeoutCheck(tries),
             Display("WRITE"),
-            NextState("READ"),
-            # *bus.write_hdl(fsm, "READ", 0, 0xDEAD_BEEF),
+            # NextState("READ"),
+            *bus.controller_write_hdl(fsm, "READ", test_addr, 0xDEAD_BEEF, tries=tries),
         )
         fsm.act("READ",
+            *TimeoutCheck(tries),
             Display("READ"),
-            NextState("WRITE_PLUS_ONE"),
-            # *bus.read_hdl(fsm, "WRITE_PLUS_ONE", 0, tmp),
+            # NextState("WRITE_PLUS_ONE"),
+            *bus.controller_read_hdl(fsm, "WRITE_PLUS_ONE", test_addr, tmp, tries=tries),
         )
         fsm.act("WRITE_PLUS_ONE",
+            *TimeoutCheck(tries),
             Display("READ_PLUS_ONE"),
-            NextState("READ_PLUS_ONE"),
-            # *bus.write_hdl(fsm, "READ_PLUS_ONE", 0, tmp + 1),
+            # NextState("READ_PLUS_ONE"),
+            *bus.controller_write_hdl(fsm, "READ_PLUS_ONE", test_addr, tmp + 1, tries=tries),
         )
         fsm.act("READ_PLUS_ONE",
+            *TimeoutCheck(tries),
             Display("READ_PLUS_ONE"),
-            NextState("END"),
-            # *bus.read_hdl(fsm, "END", 0, tmp),
+            # NextState("END"),
+            *bus.controller_read_hdl(fsm, "END", test_addr, tmp, tries=tries),
         )
         fsm.act("END",
+            *TimeoutCheck(tries),
             Display("END"),
             Finish()
         )
         # fmt: on
 
         # rename_migen_fsm(fsm, "wb_test_fsm")
-
-
-class Example(Module):
-    def __init__(self):
-        # self.clock_domains += ClockDomain("sys")
-        self.s = Signal()
-        self.counter = Signal(8)
-        x = Array(Signal(name="a") for i in range(7))
-
-        myfsm = FSM()
-        self.submodules += myfsm
-
-        myfsm.act("FOO", Display("FOO norm"), self.s.eq(1), NextState("BAR"))
-        myfsm.act(
-            "BAR",
-            Display("BAR norm"),
-            self.s.eq(0),
-            NextValue(self.counter, self.counter + 1),
-            NextValue(x[self.counter], 89),
-            NextState("FOO"),
-        )
-
-        self.be = myfsm.before_entering("FOO")
-        self.ae = myfsm.after_entering("FOO")
-        self.bl = myfsm.before_leaving("FOO")
-        self.al = myfsm.after_leaving("FOO")
 
 
 # Bench SoC ----------------------------------------------------------------------------------------
@@ -276,8 +273,6 @@ class SimSoC(SoCCore):
             ident="litelitedram sim",
             **kwargs,
         )
-
-        self.submodules.example = Example()
 
         # CRG --------------------------------------------------------------------------------------
         self.submodules.crg = CRG(platform.request("sys_clk"))
@@ -454,12 +449,15 @@ def main():
     builder_argdict["csr_csv"] = "csr.csv"
     builder_argdict["output_dir"] = soc.platform.output_dir
 
+    toolchain_argdict = parser.toolchain_argdict
+    toolchain_argdict["regular_comb"] = True
+
     if not args.debug_soc_gen:
         builder = Builder(soc, **builder_argdict)
         for i in range(2):
             build = i == 0
             run = i == 1 and builder.compile_gateware
-            builder.build(build=build, run=run, sim_config=sim_config, **parser.toolchain_argdict)
+            builder.build(build=build, run=run, sim_config=sim_config, **toolchain_argdict)
 
 
 if __name__ == "__main__":
