@@ -164,7 +164,6 @@ class WBInterface(wishbone.Interface):
     ) -> Generator[_Statement, None, None]:
         wait_state = next_state + "_BEFORE_ENTER_BUS_WAIT"
         timeout_check = list(TimeoutCheck(tries)) if tries is not None else []
-        print(timeout_check)
         # fmt: off
         fsm.act(wait_state,
             *timeout_check,
@@ -203,10 +202,6 @@ class WBRegisterTester(Module):
         self.tmp = tmp = Signal(bus.data_width)
         self.tries = tries = Signal(8)
 
-        ops = [Display("WRITE"), *bus.controller_write_hdl(fsm, "READ", test_addr, 0xDEAD_BEEF)]
-        print(ops)
-
-        self.sync += Display("INCREMENT")
         self.sync += tries.eq(tries + 1)
 
         # fmt: off
@@ -218,25 +213,21 @@ class WBRegisterTester(Module):
         fsm.act("WRITE",
             *TimeoutCheck(tries),
             DisplayOnEnter("WRITE"),
-            # NextState("READ"),
             *bus.controller_write_hdl(fsm, "READ", test_addr, 0xDEAD_BEEF, tries=tries),
         )
         fsm.act("READ",
             *TimeoutCheck(tries),
             DisplayOnEnter("READ"),
-            # NextState("WRITE_PLUS_ONE"),
             *bus.controller_read_hdl(fsm, "WRITE_PLUS_ONE", test_addr, tmp, tries=tries),
         )
         fsm.act("WRITE_PLUS_ONE",
             *TimeoutCheck(tries),
-            DisplayOnEnter("READ_PLUS_ONE"),
-            # NextState("READ_PLUS_ONE"),
+            DisplayOnEnter("WRITE_PLUS_ONE"),
             *bus.controller_write_hdl(fsm, "READ_PLUS_ONE", test_addr, tmp + 1, tries=tries),
         )
         fsm.act("READ_PLUS_ONE",
             *TimeoutCheck(tries),
             DisplayOnEnter("READ_PLUS_ONE"),
-            # NextState("END"),
             *bus.controller_read_hdl(fsm, "END", test_addr, tmp, tries=tries),
         )
         fsm.act("END",
