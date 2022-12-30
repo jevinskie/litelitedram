@@ -125,7 +125,7 @@ class WBInterface(wishbone.Interface):
         # fmt: off
         fsm.act(wait_state,
             *timeout_check,
-            Display(wait_state),
+            DisplayOnEnter(wait_state),
             If(self.ack,
                 Display(next_state + "_BUS_ACKED"),
                 NextState(next_state)
@@ -168,7 +168,7 @@ class WBInterface(wishbone.Interface):
         # fmt: off
         fsm.act(wait_state,
             *timeout_check,
-            Display(wait_state),
+            DisplayOnEnter(wait_state),
             If(self.ack,
                 Display(next_state + "_BUS_ACKED"),
                 NextValue(dat, self.dat_r),
@@ -212,36 +212,36 @@ class WBRegisterTester(Module):
         # fmt: off
         fsm.act("START",
             *TimeoutCheck(tries),
-            Display("START"),
+            DisplayOnEnter("START"),
             NextState("WRITE")
         )
         fsm.act("WRITE",
             *TimeoutCheck(tries),
-            Display("WRITE"),
+            DisplayOnEnter("WRITE"),
             # NextState("READ"),
             *bus.controller_write_hdl(fsm, "READ", test_addr, 0xDEAD_BEEF, tries=tries),
         )
         fsm.act("READ",
             *TimeoutCheck(tries),
-            Display("READ"),
+            DisplayOnEnter("READ"),
             # NextState("WRITE_PLUS_ONE"),
             *bus.controller_read_hdl(fsm, "WRITE_PLUS_ONE", test_addr, tmp, tries=tries),
         )
         fsm.act("WRITE_PLUS_ONE",
             *TimeoutCheck(tries),
-            Display("READ_PLUS_ONE"),
+            DisplayOnEnter("READ_PLUS_ONE"),
             # NextState("READ_PLUS_ONE"),
             *bus.controller_write_hdl(fsm, "READ_PLUS_ONE", test_addr, tmp + 1, tries=tries),
         )
         fsm.act("READ_PLUS_ONE",
             *TimeoutCheck(tries),
-            Display("READ_PLUS_ONE"),
+            DisplayOnEnter("READ_PLUS_ONE"),
             # NextState("END"),
             *bus.controller_read_hdl(fsm, "END", test_addr, tmp, tries=tries),
         )
         fsm.act("END",
             *TimeoutCheck(tries),
-            Display("END"),
+            DisplayOnEnter("END"),
             Finish()
         )
         # fmt: on
