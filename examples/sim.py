@@ -116,7 +116,14 @@ class WBInterface(wishbone.Interface):
         bte: Signal | int | None = None,
     ) -> Generator[_Statement, None, None]:
         wait_state = next_state + "_PRE_WAIT"
-        fsm.act(wait_state, If(self.ack, NextState(next_state)))
+        # fmt: off
+        fsm.act(wait_state,
+            Display(wait_state),
+            If(self.ack,
+                NextState(next_state)
+            )
+        )
+        # fmt: on
 
         if next_state not in fsm.actions:
             fsm.actions[next_state] = []
@@ -147,7 +154,15 @@ class WBInterface(wishbone.Interface):
         bte: Signal | int | None = None,
     ) -> Generator[_Statement, None, None]:
         wait_state = next_state + "_PRE_WAIT"
-        fsm.act(wait_state, If(self.ack, NextValue(dat, self.dat_r), NextState(next_state)))
+        # fmt: off
+        fsm.act(wait_state,
+            Display(wait_state),
+            If(self.ack,
+                NextValue(dat, self.dat_r),
+                NextState(next_state)
+            )
+        )
+        # fmt: on
 
         if next_state not in fsm.actions:
             fsm.actions[next_state] = []
@@ -174,6 +189,9 @@ class WBRegisterTester(Module):
         self.submodules.fsm = fsm = FSM("START")
         self.tmp = tmp = Signal(bus.data_width)
 
+        ops = [Display("WRITE"), *bus.write_hdl(fsm, "READ", 0, 0xDEAD_BEEF)]
+        print(ops)
+
         # fmt: off
         fsm.act("START",
             Display("START"),
@@ -181,19 +199,23 @@ class WBRegisterTester(Module):
         )
         fsm.act("WRITE",
             Display("WRITE"),
-            *bus.write_hdl(fsm, "READ", 0, 0xDEAD_BEEF),
+            NextState("READ"),
+            # *bus.write_hdl(fsm, "READ", 0, 0xDEAD_BEEF),
         )
         fsm.act("READ",
             Display("READ"),
-            *bus.read_hdl(fsm, "WRITE_PLUS_ONE", 0, tmp),
+            NextState("WRITE_PLUS_ONE"),
+            # *bus.read_hdl(fsm, "WRITE_PLUS_ONE", 0, tmp),
         )
         fsm.act("WRITE_PLUS_ONE",
             Display("READ_PLUS_ONE"),
-            *bus.write_hdl(fsm, "READ_PLUS_ONE", 0, tmp + 1),
+            NextState("READ_PLUS_ONE"),
+            # *bus.write_hdl(fsm, "READ_PLUS_ONE", 0, tmp + 1),
         )
         fsm.act("READ_PLUS_ONE",
             Display("READ_PLUS_ONE"),
-            *bus.read_hdl(fsm, "END", 0, tmp),
+            NextState("END"),
+            # *bus.read_hdl(fsm, "END", 0, tmp),
         )
         fsm.act("END",
             Display("END"),
@@ -201,7 +223,33 @@ class WBRegisterTester(Module):
         )
         # fmt: on
 
-        rename_migen_fsm(fsm, "wb_test_fsm")
+        # rename_migen_fsm(fsm, "wb_test_fsm")
+
+
+class Example(Module):
+    def __init__(self):
+        # self.clock_domains += ClockDomain("sys")
+        self.s = Signal()
+        self.counter = Signal(8)
+        x = Array(Signal(name="a") for i in range(7))
+
+        myfsm = FSM()
+        self.submodules += myfsm
+
+        myfsm.act("FOO", Display("FOO norm"), self.s.eq(1), NextState("BAR"))
+        myfsm.act(
+            "BAR",
+            Display("BAR norm"),
+            self.s.eq(0),
+            NextValue(self.counter, self.counter + 1),
+            NextValue(x[self.counter], 89),
+            NextState("FOO"),
+        )
+
+        self.be = myfsm.before_entering("FOO")
+        self.ae = myfsm.after_entering("FOO")
+        self.bl = myfsm.before_leaving("FOO")
+        self.al = myfsm.after_leaving("FOO")
 
 
 # Bench SoC ----------------------------------------------------------------------------------------
@@ -228,6 +276,8 @@ class SimSoC(SoCCore):
             ident="litelitedram sim",
             **kwargs,
         )
+
+        self.submodules.example = Example()
 
         # CRG --------------------------------------------------------------------------------------
         self.submodules.crg = CRG(platform.request("sys_clk"))
@@ -269,6 +319,44 @@ class SimSoC(SoCCore):
             self.add_memory_region("wb_reg16", wb_reg16_base, 4, type="")
             self.bus.add_slave("wb_reg16", self.wb_reg16.bus)
 
+            self.submodules.sys_clk_counter = Cycles()
+            cyc = MonitorArg(self.sys_clk_counter.count, on_change=False)
+            bus_master = list(self.bus.masters.values())[0]
+            bus_wb32 = self.wb_reg32.bus
+            bus_wb16 = self.wb_reg16.bus
+            self.submodules += Monitor(
+                "%0d M adr: %0x cyc: %0b stb: %0b ack: %0b dat_w: %0x dat_r: %0x",
+                cyc,
+                bus_master.adr * 4,
+                bus_master.cyc,
+                bus_master.stb,
+                bus_master.ack,
+                bus_master.dat_w,
+                bus_master.dat_r,
+            )
+            self.submodules += Monitor(
+                "%0d S32 adr: %0x cyc: %0b stb: %0b dat_w: %0x dat_r: %0x ack: %0b q: %0x",
+                cyc,
+                bus_wb32.adr * 4,
+                bus_wb32.cyc,
+                bus_wb32.stb,
+                bus_wb32.dat_w,
+                bus_wb32.dat_r,
+                bus_wb32.ack,
+                self.wb_reg32.q,
+            )
+            self.submodules += Monitor(
+                "%0d S16 adr: %0x cyc: %0b stb: %0b dat_w: %0x dat_r: %0x ack: %0b q: %0x",
+                cyc,
+                bus_wb16.adr * 4,
+                bus_wb16.cyc,
+                bus_wb16.stb,
+                bus_wb16.dat_w,
+                bus_wb16.dat_r,
+                bus_wb16.ack,
+                self.wb_reg16.q,
+            )
+
         # scope ------------------------------------------------------------------------------------
         if with_analyzer:
             analyzer_signals = []
@@ -293,44 +381,6 @@ class SimSoC(SoCCore):
                 ]
             # analyzer_signals = [phy_pads]
             if not with_dram:
-                self.submodules.sys_clk_counter = Cycles()
-                cyc = MonitorArg(self.sys_clk_counter.count, on_change=False)
-                bus_master = list(self.bus.masters.values())[0]
-                bus_wb32 = self.wb_reg32.bus
-                bus_wb16 = self.wb_reg16.bus
-                print(get_signals_tree(self.bus))
-                self.submodules += Monitor(
-                    "%0d M adr: %0x cyc: %0b stb: %0b ack: %0b dat_w: %0x dat_r: %0x",
-                    cyc,
-                    bus_master.adr * 4,
-                    bus_master.cyc,
-                    bus_master.stb,
-                    bus_master.ack,
-                    bus_master.dat_w,
-                    bus_master.dat_r,
-                )
-                self.submodules += Monitor(
-                    "%0d S32 adr: %0x cyc: %0b stb: %0b dat_w: %0x dat_r: %0x ack: %0b q: %0x",
-                    cyc,
-                    bus_wb32.adr * 4,
-                    bus_wb32.cyc,
-                    bus_wb32.stb,
-                    bus_wb32.dat_w,
-                    bus_wb32.dat_r,
-                    bus_wb32.ack,
-                    self.wb_reg32.q,
-                )
-                self.submodules += Monitor(
-                    "%0d S16 adr: %0x cyc: %0b stb: %0b dat_w: %0x dat_r: %0x ack: %0b q: %0x",
-                    cyc,
-                    bus_wb16.adr * 4,
-                    bus_wb16.cyc,
-                    bus_wb16.stb,
-                    bus_wb16.dat_w,
-                    bus_wb16.dat_r,
-                    bus_wb16.ack,
-                    self.wb_reg16.q,
-                )
                 # rev = reverse_signal(bus_master.adr)
                 # self.submodules += Monitor("BR(adr): %0x", rev)
                 analyzer_signals += [
