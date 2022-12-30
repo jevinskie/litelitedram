@@ -127,7 +127,7 @@ class WBInterface(wishbone.Interface):
             *timeout_check,
             Display(wait_state),
             If(self.ack,
-                Display(next_state + "_BEFORE_BUS_WAS_ACKED"),
+                Display(next_state + "_BUS_ACKED"),
                 NextState(next_state)
             )
         )

@@ -16,10 +16,17 @@ class Example(Module):
         myfsm = FSM()
         self.submodules += myfsm
 
-        myfsm.act("FOO", Display("FOO norm"), self.s.eq(1), NextState("BAR"))
+        myfsm.act(
+            "FOO",
+            Display("FOO norm"),
+            DisplayOnEnter("FOO on enter"),
+            self.s.eq(1),
+            NextState("BAR"),
+        )
         myfsm.act(
             "BAR",
             Display("BAR norm"),
+            DisplayOnEnter("BAR on enter"),
             self.s.eq(0),
             NextValue(self.counter, self.counter + 1),
             NextValue(x[self.counter], 89),
@@ -38,6 +45,6 @@ if __name__ == "__main__":
         verilog.convert(
             example,
             {example.s, example.counter, example.be, example.ae, example.bl, example.al},
-            regular_comb=False,
+            regular_comb=True,
         )
     )
