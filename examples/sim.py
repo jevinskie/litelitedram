@@ -77,7 +77,7 @@ class Platform(SimPlatform):
 
 
 class WBRegister(Module):
-    def __init__(self, width, addr_width=1) -> None:
+    def __init__(self, width, addr_width=16) -> None:
         from litex.soc.interconnect import wishbone
 
         self.d = Signal(width)
@@ -105,7 +105,8 @@ class WBRegister(Module):
 
 
 def TimeoutCheck(tries):
-    yield If(tries >= 32, Display("TIMEOUT!"), Finish())
+    yield EmptyStatement()
+    # yield If(tries >= 32, Display("TIMEOUT!"), Finish())
 
 
 class WBInterface(wishbone.Interface):
@@ -259,7 +260,7 @@ class WBRegisterTester(Module):
         fsm.act("END",
             *TimeoutCheck(tries),
             DisplayOnEnter("END"),
-            Finish()
+            # Finish()
         )
         # fmt: on
 
@@ -326,19 +327,18 @@ class SimSoC(SoCCore):
             self.add_memory_region("wb_reg32", wb_reg32_base, 8, type="")
             self.bus.add_slave("wb_reg32", self.wb_reg32.bus)
 
-            self.submodules.wb_reg16 = WBRegister(16)
-            wb_reg16_base = 0x4000_0000
-            self.add_memory_region("wb_reg16", wb_reg16_base, 8, type="")
-            self.bus.add_slave("wb_reg16", self.wb_reg16.bus)
+            # self.submodules.wb_reg16 = WBRegister(16)
+            # wb_reg16_base = 0x4000_0000
+            # self.add_memory_region("wb_reg16", wb_reg16_base, 8, type="")
+            # self.bus.add_slave("wb_reg16", self.wb_reg16.bus)
 
-            # self.submodules.wb_reg_tester = WBRegisterTester(wb_reg16_base // 4)
-            # self.bus.add_master("wb_reg_tester", self.wb_reg_tester.bus)
+            self.submodules.wb_reg_tester = WBRegisterTester(wb_reg32_base // 4)
+            self.bus.add_master("wb_reg_tester", self.wb_reg_tester.bus)
 
             self.submodules.sys_clk_counter = Cycles()
             cyc = MonitorArg(self.sys_clk_counter.count, on_change=False)
             bus_master = list(self.bus.masters.values())[0]
             bus_wb32 = self.wb_reg32.bus
-            bus_wb16 = self.wb_reg16.bus
             self.submodules += Monitor(
                 "%0d M adr: %0x cyc: %0b stb: %0b ack: %0b dat_w: %0x dat_r: %0x",
                 cyc,
@@ -350,27 +350,37 @@ class SimSoC(SoCCore):
                 bus_master.dat_r,
             )
             self.submodules += Monitor(
-                "%0d S32 adr: %0x cyc: %0b stb: %0b dat_w: %0x dat_r: %0x ack: %0b q: %0x",
+                "%0d S32 adr: %0x cyc: %0b stb: %0b ack: %0b dat_w: %0x dat_r: %0x q: %0x",
                 cyc,
                 bus_wb32.adr * 4,
                 bus_wb32.cyc,
                 bus_wb32.stb,
+                bus_wb32.ack,
                 bus_wb32.dat_w,
                 bus_wb32.dat_r,
-                bus_wb32.ack,
                 self.wb_reg32.q,
             )
-            self.submodules += Monitor(
-                "%0d S16 adr: %0x cyc: %0b stb: %0b dat_w: %0x dat_r: %0x ack: %0b q: %0x",
-                cyc,
-                bus_wb16.adr * 4,
-                bus_wb16.cyc,
-                bus_wb16.stb,
-                bus_wb16.dat_w,
-                bus_wb16.dat_r,
-                bus_wb16.ack,
-                self.wb_reg16.q,
-            )
+            # self.bus.finalize()
+            # decoder_master = self.bus._interconnect.decoder.master
+            # decoder_slaves = self.bus._interconnect.decoder.slaves
+            # print(decoder_slaves)
+            # self.submodules += Monitor(
+            #     "%0d DEC M dat_r: %0x ",
+            #     cyc,
+            #     decoder_master.dat_r,
+            # )
+            # bus_wb16 = self.wb_reg16.bus
+            # self.submodules += Monitor(
+            #     "%0d S16 adr: %0x cyc: %0b stb: %0b dat_w: %0x dat_r: %0x ack: %0b q: %0x",
+            #     cyc,
+            #     bus_wb16.adr * 4,
+            #     bus_wb16.cyc,
+            #     bus_wb16.stb,
+            #     bus_wb16.dat_w,
+            #     bus_wb16.dat_r,
+            #     bus_wb16.ack,
+            #     self.wb_reg16.q,
+            # )
 
         # scope ------------------------------------------------------------------------------------
         if with_analyzer:
