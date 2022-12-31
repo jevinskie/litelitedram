@@ -331,8 +331,8 @@ class SimSoC(SoCCore):
             self.add_memory_region("wb_reg16", wb_reg16_base, 8, type="")
             self.bus.add_slave("wb_reg16", self.wb_reg16.bus)
 
-            self.submodules.wb_reg_tester = WBRegisterTester(wb_reg32_base // 4)
-            self.bus.add_master("wb_reg_tester", self.wb_reg_tester.bus)
+            # self.submodules.wb_reg_tester = WBRegisterTester(wb_reg16_base // 4)
+            # self.bus.add_master("wb_reg_tester", self.wb_reg_tester.bus)
 
             self.submodules.sys_clk_counter = Cycles()
             cyc = MonitorArg(self.sys_clk_counter.count, on_change=False)
