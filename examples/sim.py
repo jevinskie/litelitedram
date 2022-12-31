@@ -123,7 +123,11 @@ class WBInterface(wishbone.Interface):
         if sel is None:
             sel = 2 ** len(self.sel) - 1
 
+        timeout_check = list(TimeoutCheck(tries)) if tries is not None else []
+
         def statements():
+            for s in timeout_check:
+                yield s
             yield self.adr.eq(adr)
             yield self.dat_w.eq(dat)
             yield self.sel.eq(sel)
@@ -134,19 +138,20 @@ class WBInterface(wishbone.Interface):
             yield self.we.eq(1)
             yield self.cyc.eq(1)
             yield self.stb.eq(1)
+            yield If(self.ack, Display(next_state + "_BUS_ACKED"), NextState(next_state))
 
-        wait_state = next_state + "_BEFORE_ENTER_BUS_WAIT"
-        timeout_check = list(TimeoutCheck(tries)) if tries is not None else []
+        # wait_state = next_state + "_BEFORE_ENTER_BUS_WAIT"
+        # timeout_check = list(TimeoutCheck(tries)) if tries is not None else []
         # fmt: off
-        fsm.act(wait_state,
-            *timeout_check,
-            DisplayOnEnter(wait_state),
-            *statements(),
-            If(self.ack,
-                Display(next_state + "_BUS_ACKED"),
-                NextState(next_state)
-            )
-        )
+        # fsm.act(wait_state,
+        #     *timeout_check,
+        #     DisplayOnEnter(wait_state),
+        #     *statements(),
+        #     If(self.ack,
+        #         Display(next_state + "_BUS_ACKED"),
+        #         NextState(next_state)
+        #     )
+        # )
         # fmt: on
 
         if next_state not in fsm.actions:
@@ -155,7 +160,7 @@ class WBInterface(wishbone.Interface):
 
         for s in statements():
             yield s
-        yield NextState(wait_state)
+        # yield NextState(wait_state)
 
     def controller_read_hdl(
         self,
@@ -171,7 +176,11 @@ class WBInterface(wishbone.Interface):
         if sel is None:
             sel = 2 ** len(self.sel) - 1
 
+        timeout_check = list(TimeoutCheck(tries)) if tries is not None else []
+
         def statements():
+            for s in timeout_check:
+                yield s
             yield self.adr.eq(adr)
             yield self.dat_r.eq(dat)
             yield self.sel.eq(sel)
@@ -182,21 +191,26 @@ class WBInterface(wishbone.Interface):
             yield self.we.eq(0)
             yield self.cyc.eq(1)
             yield self.stb.eq(1)
-
-        wait_state = next_state + "_BEFORE_ENTER_BUS_WAIT"
-        timeout_check = list(TimeoutCheck(tries)) if tries is not None else []
-
-        # fmt: off
-        fsm.act(wait_state,
-            *timeout_check,
-            DisplayOnEnter(wait_state),
-            *statements(),
-            If(self.ack,
+            yield If(
+                self.ack,
                 Display(next_state + "_BUS_ACKED"),
                 NextValue(dat, self.dat_r),
-                NextState(next_state)
+                NextState(next_state),
             )
-        )
+
+        wait_state = next_state + "_BEFORE_ENTER_BUS_WAIT"
+
+        # fmt: off
+        # fsm.act(wait_state,
+        #     *timeout_check,
+        #     DisplayOnEnter(wait_state),
+        #     *statements(),
+        #     If(self.ack,
+        #         Display(next_state + "_BUS_ACKED"),
+        #         NextValue(dat, self.dat_r),
+        #         NextState(next_state)
+        #     )
+        # )
         # fmt: on
 
         if next_state not in fsm.actions:
@@ -205,7 +219,7 @@ class WBInterface(wishbone.Interface):
 
         for s in statements():
             yield s
-        yield NextState(wait_state)
+        # yield NextState(wait_state)
 
 
 class WBRegisterTester(Module):
