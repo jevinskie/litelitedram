@@ -182,7 +182,6 @@ class WBInterface(wishbone.Interface):
             for s in timeout_check:
                 yield s
             yield self.adr.eq(adr)
-            yield self.dat_r.eq(dat)
             yield self.sel.eq(sel)
             if cti is not None:
                 yield self.cti.eq(cti)
