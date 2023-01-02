@@ -231,6 +231,10 @@ class WBRegisterTester(Module):
 
         self.sync += tries.eq(tries + 1)
 
+        magic = 0xDEAD_BEEF
+        self.submodules += Monitor("tmp: %0x", tmp)
+        self.sync += Display("tmp: %0x", tmp)
+
         # fmt: off
         fsm.act("START",
             *TimeoutCheck(tries),
@@ -240,12 +244,18 @@ class WBRegisterTester(Module):
         fsm.act("WRITE",
             *TimeoutCheck(tries),
             DisplayOnEnter("WRITE"),
-            *bus.controller_write_hdl(fsm, "READ", test_addr, 0xDEAD_BEEF, tries=tries),
+            *bus.controller_write_hdl(fsm, "READ", test_addr, magic, tries=tries),
         )
         fsm.act("READ",
             *TimeoutCheck(tries),
             DisplayOnEnter("READ"),
-            *bus.controller_read_hdl(fsm, "WRITE_PLUS_ONE", test_addr, tmp, tries=tries),
+            *bus.controller_read_hdl(fsm, "READ_CHECK", test_addr, tmp, tries=tries),
+        )
+        fsm.act("READ_CHECK",
+            *TimeoutCheck(tries),
+            DisplayOnEnter("READ_CHECK"),
+            *Assert(tmp == magic),
+            NextState("WRITE_PLUS_ONE"),
         )
         fsm.act("WRITE_PLUS_ONE",
             *TimeoutCheck(tries),
