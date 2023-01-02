@@ -351,18 +351,19 @@ class SimSoC(SoCCore):
 
             self.submodules.sys_clk_counter = Cycles()
             cyc = MonitorArg(self.sys_clk_counter.count, on_change=False)
-            bus_master = list(self.bus.masters.values())[0]
+            for i, kv in enumerate(self.bus.masters.items()):
+                k, v = kv
+                self.submodules += Monitor(
+                    f"%0d M[{i}] {k} adr: %0x cyc: %0b stb: %0b ack: %0b dat_w: %0x dat_r: %0x",
+                    cyc,
+                    v.adr * 4,
+                    v.cyc,
+                    v.stb,
+                    v.ack,
+                    v.dat_w,
+                    v.dat_r,
+                )
             bus_wb32 = self.wb_reg32.bus
-            self.submodules += Monitor(
-                "%0d M adr: %0x cyc: %0b stb: %0b ack: %0b dat_w: %0x dat_r: %0x",
-                cyc,
-                bus_master.adr * 4,
-                bus_master.cyc,
-                bus_master.stb,
-                bus_master.ack,
-                bus_master.dat_w,
-                bus_master.dat_r,
-            )
             self.submodules += Monitor(
                 "%0d S32 adr: %0x cyc: %0b stb: %0b ack: %0b dat_w: %0x dat_r: %0x q: %0x",
                 cyc,
