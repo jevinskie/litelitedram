@@ -491,7 +491,7 @@ def main():
     builder_argdict["output_dir"] = soc.platform.output_dir
 
     toolchain_argdict = parser.toolchain_argdict
-    toolchain_argdict["regular_comb"] = False
+    toolchain_argdict["regular_comb"] = True
 
     if not args.debug_soc_gen:
         builder = Builder(soc, **builder_argdict)
