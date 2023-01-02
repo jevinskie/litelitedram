@@ -263,7 +263,13 @@ class WBRegisterTester(Module):
         fsm.act("READ_PLUS_ONE",
             *TimeoutCheck(tries),
             DisplayOnEnter("READ_PLUS_ONE"),
-            *bus.controller_read_hdl(fsm, "END", test_addr, tmp, tries=tries),
+            *bus.controller_read_hdl(fsm, "READ_PLUS_ONE_CHECK", test_addr, tmp, tries=tries),
+        )
+        fsm.act("READ_PLUS_ONE_CHECK",
+            *TimeoutCheck(tries),
+            DisplayOnEnter("READ_PLUS_ONE_CHECK"),
+            *Assert(tmp == magic + 1),
+            NextState("END"),
         )
         fsm.act("END",
             *TimeoutCheck(tries),
