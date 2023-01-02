@@ -232,8 +232,6 @@ class WBRegisterTester(Module):
         self.sync += tries.eq(tries + 1)
 
         magic = 0xDEAD_BEEF
-        self.submodules += Monitor("tmp: %0x", tmp)
-        self.sync += Display("tmp: %0x", tmp)
 
         # fmt: off
         fsm.act("START",
@@ -491,7 +489,7 @@ def main():
     builder_argdict["output_dir"] = soc.platform.output_dir
 
     toolchain_argdict = parser.toolchain_argdict
-    toolchain_argdict["regular_comb"] = True
+    toolchain_argdict["regular_comb"] = False
 
     if not args.debug_soc_gen:
         builder = Builder(soc, **builder_argdict)
