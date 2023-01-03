@@ -84,50 +84,39 @@ class WBRegister(Module):
         self.q = q = Signal(width)
         self.a = a = Signal(addr_width)
         self.bus = bus = wishbone.Interface(width, addr_width)
-        wb_valid, wb_valid_r = Signal(), Signal()
-        ack, ack_r = Signal(), Signal()
-        dat_r, dat_r_r = Signal(), Signal()
-        we_r = Signal()
-        # fmt: off
+        wb_valid = Signal()
+        ack = Signal()
+        dat_r = Signal.like(bus.dat_r)
+
         self.comb += [
             d.eq(q),
             wb_valid.eq(bus.cyc & bus.stb),
-            If(wb_valid,
+            If(
+                wb_valid,
                 a.eq(bus.adr),
                 ack.eq(1),
-                If(bus.we,
-                    d.eq(bus.dat_w),
-                ).Else(
+                If(bus.we, d.eq(bus.dat_w),).Else(
                     dat_r.eq(q),
                 ),
             ),
         ]
+
         self.sync += q.eq(d)
+
         if not registered:
+            # fmt: off
             self.comb += [
-                If(wb_valid,
-                    bus.ack.eq(ack),
-                    If(~bus.we,
-                        bus.dat_r.eq(q),
-                    ),
-                )
+                bus.dat_r.eq(dat_r),
+                bus.ack.eq(ack),
             ]
+            # fmt: on
         else:
+            # fmt: off
             self.sync += [
-                we_r.eq(bus.we),
-                wb_valid_r.eq(wb_valid),
-                ack_r.eq(ack),
-                dat_r_r.eq(dat_r),
+                bus.dat_r.eq(dat_r),
+                bus.ack.eq(ack),
             ]
-            self.comb += [
-                If(wb_valid_r,
-                    bus.ack.eq(ack_r),
-                    If(~we_r,
-                        bus.dat_r.eq(dat_r_r),
-                    ),
-                )
-            ]
-        # fmt: on
+            # fmt: on
 
 
 def TimeoutCheck(tries):
