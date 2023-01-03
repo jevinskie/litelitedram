@@ -119,12 +119,12 @@ class WBRegister(Module):
             fsm.act("READ_WRITE",
                 bus.dat_r.eq(dat_r),
                 bus.ack.eq(ack),
-                If(ack,
-                    NextState("WAIT"),
-                )
+                NextState("WAIT"),
             )
             fsm.act("WAIT",
-                NextState("READ_WRITE"),
+                If(ack,
+                    NextState("READ_WRITE"),
+                )
             )
             # fmt: on
 
