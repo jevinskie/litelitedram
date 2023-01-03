@@ -115,10 +115,15 @@ class WBRegister(Module):
             # fmt: on
         else:
             # fmt: off
-            self.sync += [
+            self.submodules.fsm = fsm = FSM()
+            fsm.act("READ_WRITE",
                 bus.dat_r.eq(dat_r),
                 bus.ack.eq(ack),
-            ]
+                NextState("WAIT"),
+            )
+            fsm.act("WAIT",
+                NextState("READ_WRITE"),
+            )
             # fmt: on
 
 
@@ -160,37 +165,11 @@ class WBInterface(wishbone.Interface):
             yield If(
                 self.ack,
                 Display(next_state + "_BUS_ACKED"),
-                Display(
-                    f"%0t WRITE {next_state}_BUS_ACKED dat_w: %0x dat_r: %0x ack: %0b",
-                    Time(),
-                    self.dat_w,
-                    self.dat_r,
-                    self.ack,
-                ),
                 NextState(next_state),
             )
 
-        # wait_state = next_state + "_BEFORE_ENTER_BUS_WAIT"
-        # timeout_check = list(TimeoutCheck(tries)) if tries is not None else []
-        # fmt: off
-        # fsm.act(wait_state,
-        #     *timeout_check,
-        #     DisplayOnEnter(wait_state),
-        #     *statements(),
-        #     If(self.ack,
-        #         Display(next_state + "_BUS_ACKED"),
-        #         NextState(next_state)
-        #     )
-        # )
-        # fmt: on
-
-        if next_state not in fsm.actions:
-            fsm.actions[next_state] = []
-        fsm.actions[next_state] = [self.cyc.eq(0), self.stb.eq(0)] + fsm.actions[next_state]
-
         for s in statements():
             yield s
-        # yield NextState(wait_state)
 
     def controller_read_hdl(
         self,
@@ -223,35 +202,12 @@ class WBInterface(wishbone.Interface):
             yield If(
                 self.ack,
                 Display(next_state + "_BUS_ACKED"),
-                Display(
-                    f"%0t READ {next_state}_BUS_ACKED dat: %0x dat_r: %0x", Time(), dat, self.dat_r
-                ),
                 NextValue(dat, self.dat_r),
                 NextState(next_state),
             )
 
-        wait_state = next_state + "_BEFORE_ENTER_BUS_WAIT"
-
-        # fmt: off
-        # fsm.act(wait_state,
-        #     *timeout_check,
-        #     DisplayOnEnter(wait_state),
-        #     *statements(),
-        #     If(self.ack,
-        #         Display(next_state + "_BUS_ACKED"),
-        #         NextValue(dat, self.dat_r),
-        #         NextState(next_state)
-        #     )
-        # )
-        # fmt: on
-
-        if next_state not in fsm.actions:
-            fsm.actions[next_state] = []
-        fsm.actions[next_state] = [self.cyc.eq(0), self.stb.eq(0)] + fsm.actions[next_state]
-
         for s in statements():
             yield s
-        # yield NextState(wait_state)
 
 
 class WBRegisterTester(Module):
