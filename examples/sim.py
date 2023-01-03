@@ -88,18 +88,21 @@ class WBRegister(Module):
         ack = Signal()
         dat_r = Signal.like(bus.dat_r)
 
+        # fmt: off
         self.comb += [
             d.eq(q),
             wb_valid.eq(bus.cyc & bus.stb),
-            If(
-                wb_valid,
+            If(wb_valid,
                 a.eq(bus.adr),
                 ack.eq(1),
-                If(bus.we, d.eq(bus.dat_w),).Else(
+                If(bus.we,
+                    d.eq(bus.dat_w),
+                ).Else(
                     dat_r.eq(q),
                 ),
             ),
         ]
+        # fmt: on
 
         self.sync += q.eq(d)
 
