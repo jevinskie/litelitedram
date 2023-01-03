@@ -132,8 +132,8 @@ class WBInterface(wishbone.Interface):
         self,
         fsm: FSM,
         next_state,
-        adr: Signal,
-        dat: Signal,
+        adr: Signal | int,
+        dat: Signal | int,
         sel: Signal | int | None = None,
         cti: Signal | int | None = None,
         bte: Signal | int | None = None,
@@ -157,7 +157,18 @@ class WBInterface(wishbone.Interface):
             yield self.we.eq(1)
             yield self.cyc.eq(1)
             yield self.stb.eq(1)
-            yield If(self.ack, Display(next_state + "_BUS_ACKED"), NextState(next_state))
+            yield If(
+                self.ack,
+                Display(next_state + "_BUS_ACKED"),
+                Display(
+                    f"%0t WRITE {next_state}_BUS_ACKED dat_w: %0x dat_r: %0x ack: %0b",
+                    Time(),
+                    self.dat_w,
+                    self.dat_r,
+                    self.ack,
+                ),
+                NextState(next_state),
+            )
 
         # wait_state = next_state + "_BEFORE_ENTER_BUS_WAIT"
         # timeout_check = list(TimeoutCheck(tries)) if tries is not None else []
@@ -212,6 +223,9 @@ class WBInterface(wishbone.Interface):
             yield If(
                 self.ack,
                 Display(next_state + "_BUS_ACKED"),
+                Display(
+                    f"%0t READ {next_state}_BUS_ACKED dat: %0x dat_r: %0x", Time(), dat, self.dat_r
+                ),
                 NextValue(dat, self.dat_r),
                 NextState(next_state),
             )
@@ -260,17 +274,20 @@ class WBRegisterTester(Module):
         fsm.act("WRITE",
             *TimeoutCheck(tries),
             DisplayOnEnter("WRITE"),
+            Display("%0t WRITE tmp: %0x", Time(), tmp),
             *bus.controller_write_hdl(fsm, "READ", test_addr, magic, tries=tries),
         )
         fsm.act("READ",
             *TimeoutCheck(tries),
             DisplayOnEnter("READ"),
+            Display("%0t READ tmp: %0x", Time(), tmp),
             *bus.controller_read_hdl(fsm, "READ_CHECK", test_addr, tmp, tries=tries),
         )
         fsm.act("READ_CHECK",
             *TimeoutCheck(tries),
             DisplayOnEnter("READ_CHECK"),
-            # *Assert(tmp == magic),
+            Display("%0t READ_CHECK tmp: %0x", Time(), tmp),
+            *Assert(tmp == magic),
             NextState("WRITE_PLUS_ONE"),
         )
         fsm.act("WRITE_PLUS_ONE",
@@ -281,12 +298,14 @@ class WBRegisterTester(Module):
         fsm.act("READ_PLUS_ONE",
             *TimeoutCheck(tries),
             DisplayOnEnter("READ_PLUS_ONE"),
+            Display("READ_PLUS_ONE tmp: %0x", tmp),
             *bus.controller_read_hdl(fsm, "READ_PLUS_ONE_CHECK", test_addr, tmp, tries=tries),
         )
         fsm.act("READ_PLUS_ONE_CHECK",
             *TimeoutCheck(tries),
             DisplayOnEnter("READ_PLUS_ONE_CHECK"),
-            # *Assert(tmp == magic + 1),
+            Display("READ_PLUS_ONE_CHECK tmp: %0x", tmp),
+            *Assert(tmp == magic + 1),
             NextState("END"),
         )
         fsm.act("END",
